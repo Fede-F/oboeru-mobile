@@ -1,7 +1,8 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import type { DeckSummary } from '../lib/db/schema';
   import type { HeatmapDayCell } from '../lib/db/database';
-  import { deleteCustomUserDeck } from '../lib/db/database';
+  import { deleteCustomUserDeck, duplicateDeckToCustom } from '../lib/db/database';
   import StudyHeatmap from './StudyHeatmap.svelte';
   import {
     hapticImpactLight,
@@ -21,6 +22,7 @@
     onOpenSearch: () => void;
     onOpenCreateDeck: () => void;
     onDeckDeleted?: () => void | Promise<void>;
+    onDeckDuplicated?: () => void | Promise<void>;
   }
 
   let {
@@ -32,21 +34,36 @@
     onSelectDeck,
     onOpenSearch,
     onOpenCreateDeck,
-    onDeckDeleted
+    onDeckDeleted,
+    onDeckDuplicated
   }: Props = $props();
 
   type SortCriterion = 'created' | 'name' | 'due' | 'size';
   type OwnershipFilter = 'all' | 'mine';
 
+  const OWNERSHIP_STORAGE_KEY = 'oboeru_decks_ownership_filter';
+
   let sortBy = $state<SortCriterion>('created');
   let sortDirection = $state<'asc' | 'desc'>('desc');
   let ownershipFilter = $state<OwnershipFilter>('all');
 
-  // Estado para modal de confirmación de eliminación o aviso de sistema
-  let deckToDelete = $state<DeckSummary | null>(null);
-  let showDeleteModal = $state(false);
-  let showSystemDeckModal = $state(false);
+  // Estado para submenú contextual (long-press) y acciones
+  let targetDeck = $state<DeckSummary | null>(null);
+  let showActionMenu = $state(false);
+  let showDeleteConfirm = $state(false);
   let isDeleting = $state(false);
+  let isDuplicating = $state(false);
+
+  onMount(() => {
+    try {
+      const saved = localStorage.getItem(OWNERSHIP_STORAGE_KEY);
+      if (saved === 'all' || saved === 'mine') {
+        ownershipFilter = saved;
+      }
+    } catch {
+      // Ignorar restricciones de storage local si aplican
+    }
+  });
 
   // Variables para la detección del gesto mantener apretado (long-press)
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -62,16 +79,10 @@
     if (longPressTimer) clearTimeout(longPressTimer);
     longPressTimer = setTimeout(async () => {
       longPressFired = true;
-      if (deck.isCustom) {
-        await hapticImpactMedium();
-        deckToDelete = deck;
-        showDeleteModal = true;
-      } else {
-        await hapticWarning();
-        deckToDelete = deck;
-        showSystemDeckModal = true;
-      }
-    }, 550);
+      await hapticImpactMedium();
+      targetDeck = deck;
+      showActionMenu = true;
+    }, 520);
   }
 
   function handlePointerMove(e: PointerEvent) {
@@ -100,28 +111,54 @@
     await handleSelect(deck);
   }
 
+  function closeMenu() {
+    showActionMenu = false;
+    showDeleteConfirm = false;
+    targetDeck = null;
+  }
+
+  async function handleDuplicateDeck() {
+    if (!targetDeck || isDuplicating) return;
+    isDuplicating = true;
+    try {
+      await hapticImpactLight();
+      await duplicateDeckToCustom(targetDeck);
+      await hapticSuccess();
+      closeMenu();
+      if (onDeckDuplicated) {
+        await onDeckDuplicated();
+      } else if (onDeckDeleted) {
+        await onDeckDeleted();
+      }
+    } catch (err) {
+      console.error('Error al duplicar mazo:', err);
+      await hapticWarning();
+    } finally {
+      isDuplicating = false;
+    }
+  }
+
+  function openDeleteConfirm() {
+    showActionMenu = false;
+    showDeleteConfirm = true;
+  }
+
   async function confirmDelete() {
-    if (!deckToDelete || !deckToDelete.isCustom) return;
+    if (!targetDeck || !targetDeck.isCustom) return;
     isDeleting = true;
     try {
-      await deleteCustomUserDeck(deckToDelete.id);
+      await deleteCustomUserDeck(targetDeck.id);
       await hapticSuccess();
-      showDeleteModal = false;
-      deckToDelete = null;
+      closeMenu();
       if (onDeckDeleted) {
         await onDeckDeleted();
       }
     } catch (err) {
       console.error('Error al eliminar mazo:', err);
+      await hapticWarning();
     } finally {
       isDeleting = false;
     }
-  }
-
-  function cancelDelete() {
-    showDeleteModal = false;
-    showSystemDeckModal = false;
-    deckToDelete = null;
   }
 
   const sortOptions: Array<{ id: SortCriterion; label: string }> = [
@@ -201,7 +238,6 @@
 
   function getDeckProgressPercent(deck: DeckSummary): number {
     if (!deck.totalCards || deck.totalCards === 0) return 0;
-    // Porcentaje de progreso: tarjetas dominadas respecto al total (mínimo 0%, máx 100%)
     const pct = Math.round(((deck.masteredCards || 0) / deck.totalCards) * 100);
     return Math.min(100, Math.max(0, pct));
   }
@@ -212,7 +248,6 @@
       sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
     } else {
       sortBy = criterion;
-      // Por defecto: Nombre ascendente (A->Z), y el resto descendente (más reciente / más urgentes primero)
       sortDirection = criterion === 'name' ? 'asc' : 'desc';
     }
   }
@@ -221,6 +256,11 @@
     if (ownershipFilter === filter) return;
     await hapticSelection();
     ownershipFilter = filter;
+    try {
+      localStorage.setItem(OWNERSHIP_STORAGE_KEY, filter);
+    } catch {
+      // Ignorar
+    }
   }
 
   async function handleSelect(deck: DeckSummary) {
@@ -273,7 +313,7 @@
             Mazos Disponibles ({sortedDecks.length})
           </h3>
           <span class="text-[10px] text-white/50">
-            Mantené presionado para eliminar mazo
+            Mantené presionado para opciones
           </span>
         </div>
 
@@ -391,17 +431,19 @@
             </div>
           </div>
 
-          <!-- Pie del Mazo: Etiqueta JP | ES y botón circular mate -->
+          <!-- Pie del Mazo: Etiqueta JP | ES y botón circular mate (solo en mazos propios) -->
           <div class="flex items-center justify-between pt-1">
             <span class="text-[10px] font-bold uppercase tracking-wider text-white/55 truncate">
               {deck.isCustom ? 'JP | MÍO' : 'JP | ES'}
             </span>
 
-            <div class="w-7 h-7 rounded-full bg-white/15 flex items-center justify-center text-white">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-              </svg>
-            </div>
+            {#if deck.isCustom}
+              <div class="w-7 h-7 rounded-full bg-white/15 flex items-center justify-center text-white">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+              </div>
+            {/if}
           </div>
         </button>
       {/each}
@@ -454,8 +496,96 @@
     {todayCount}
   />
 
+  <!-- Submenú Contextual / Acciones del Mazo (Long-press) -->
+  {#if showActionMenu && targetDeck}
+    <div
+      class="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="menu-deck-title"
+    >
+      <div
+        class="bg-[#181d22] border border-white/10 rounded-[32px] p-5 max-w-sm w-full shadow-2xl space-y-4 animate-fade-in"
+      >
+        <!-- Encabezado del Mazo -->
+        <div class="flex items-center justify-between pb-2 border-b border-white/10">
+          <div class="min-w-0 pr-2">
+            <span class="text-[10px] uppercase tracking-wider text-[#a7f3d0] font-bold block">
+              {targetDeck.isCustom ? 'Mazo Personalizado' : 'Mazo del Sistema'}
+            </span>
+            <h3 id="menu-deck-title" class="text-base font-extrabold text-white truncate mt-0.5">
+              {targetDeck.title}
+            </h3>
+            <span class="text-xs text-white/60">
+              {targetDeck.totalCards} palabras • {targetDeck.dueCards} para hoy
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onclick={closeMenu}
+            class="w-8 h-8 rounded-full bg-white/10 text-white/60 hover:text-white flex items-center justify-center text-xs active-press shrink-0"
+          >
+            ✕
+          </button>
+        </div>
+
+        <!-- Opciones del Menú -->
+        <div class="space-y-2">
+          <!-- 1. Duplicar Mazo (disponible para todos: por defecto y propios) -->
+          <button
+            type="button"
+            onclick={handleDuplicateDeck}
+            disabled={isDuplicating}
+            class="touch-target w-full p-3.5 rounded-2xl bg-white/5 hover:bg-white/10 text-left active-press flex items-center justify-between transition-colors disabled:opacity-50"
+          >
+            <div class="flex items-center gap-3">
+              <div class="w-9 h-9 rounded-xl bg-[#a7f3d0]/15 text-[#a7f3d0] flex items-center justify-center text-base">
+                📑
+              </div>
+              <div>
+                <span class="text-sm font-bold text-white block">Duplicar mazo</span>
+                <span class="text-[11px] text-white/60 block">Crea una copia editable en tus mazos ("Míos")</span>
+              </div>
+            </div>
+
+            {#if isDuplicating}
+              <div class="w-4 h-4 border-2 border-[#a7f3d0] border-t-transparent rounded-full animate-spin"></div>
+            {/if}
+          </button>
+
+          <!-- 2. Eliminar Mazo (solo disponible para mazos propios) -->
+          {#if targetDeck.isCustom}
+            <button
+              type="button"
+              onclick={openDeleteConfirm}
+              class="touch-target w-full p-3.5 rounded-2xl bg-rose-500/10 hover:bg-rose-500/15 text-left active-press flex items-center gap-3 transition-colors"
+            >
+              <div class="w-9 h-9 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center text-base">
+                🗑️
+              </div>
+              <div>
+                <span class="text-sm font-bold text-rose-300 block">Eliminar mazo</span>
+                <span class="text-[11px] text-rose-200/60 block">Borra este mazo sin perder tus repasos del diccionario</span>
+              </div>
+            </button>
+          {/if}
+        </div>
+
+        <!-- Botón Cancelar -->
+        <button
+          type="button"
+          onclick={closeMenu}
+          class="touch-target w-full py-2.5 rounded-2xl bg-white/5 hover:bg-white/10 text-white/70 font-semibold text-xs active-press text-center mt-1"
+        >
+          Cerrar
+        </button>
+      </div>
+    </div>
+  {/if}
+
   <!-- Modal de Confirmación para Eliminar Mazo Personalizado -->
-  {#if showDeleteModal && deckToDelete}
+  {#if showDeleteConfirm && targetDeck}
     <div
       class="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-5"
       role="dialog"
@@ -476,7 +606,7 @@
             ¿Eliminar mazo?
           </h3>
           <p class="text-sm font-semibold text-rose-300 line-clamp-1">
-            "{deckToDelete.title}"
+            "{targetDeck.title}"
           </p>
           <p class="text-xs text-white/60 leading-relaxed pt-1">
             Se eliminará este mazo personalizado. Las palabras que contiene seguirán en tu diccionario y no perderás tu historial de repasos.
@@ -500,52 +630,13 @@
 
           <button
             type="button"
-            onclick={cancelDelete}
+            onclick={closeMenu}
             disabled={isDeleting}
             class="touch-target w-full py-3 px-4 rounded-2xl bg-white/10 hover:bg-white/15 text-white/80 hover:text-white font-bold text-sm active-press"
           >
             Cancelar
           </button>
         </div>
-      </div>
-    </div>
-  {/if}
-
-  <!-- Modal Informativo para Mazos Predeterminados -->
-  {#if showSystemDeckModal && deckToDelete}
-    <div
-      class="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-5"
-      role="dialog"
-      aria-modal="true"
-    >
-      <div
-        class="bg-[#181d22] border border-white/10 rounded-[30px] p-6 max-w-sm w-full shadow-2xl space-y-5 text-center"
-      >
-        <div class="w-14 h-14 mx-auto rounded-full bg-amber-500/15 text-amber-400 flex items-center justify-center">
-          <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
-          </svg>
-        </div>
-
-        <div class="space-y-1.5">
-          <h3 class="text-lg font-extrabold text-white">
-            Mazo Predeterminado
-          </h3>
-          <p class="text-sm font-semibold text-white/90">
-            "{deckToDelete.title}"
-          </p>
-          <p class="text-xs text-white/60 leading-relaxed pt-1">
-            Los mazos estándar del sistema (JLPT) son de solo lectura y no se pueden eliminar. Podés crear y gestionar todos los mazos propios que desees desde "Crear mazo".
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onclick={cancelDelete}
-          class="touch-target w-full py-3 px-4 rounded-2xl bg-white text-slate-950 font-bold text-sm active-press"
-        >
-          Entendido
-        </button>
       </div>
     </div>
   {/if}

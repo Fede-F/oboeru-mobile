@@ -732,6 +732,42 @@ export async function createCustomUserDeck(
   return newDeck;
 }
 
+/**
+ * Duplica cualquier mazo (por defecto o personalizado) creando una copia en los mazos del usuario ("Míos").
+ * El nuevo mazo recibe todas las palabras del mazo origen y es 100% editable.
+ */
+export async function duplicateDeckToCustom(
+  deck: DeckSummary,
+  userId: string = LOCAL_DEFAULT_USER_ID
+): Promise<UserDeckRecord> {
+  const [vocabList, customDecks] = await Promise.all([
+    getAllVocabulary(),
+    getAllUserDecks()
+  ]);
+
+  let vocabularyIds: string[] = [];
+
+  if (deck.isCustom) {
+    const existing = customDecks.find((d) => d.id === deck.id);
+    if (existing && Array.isArray(existing.vocabulary_ids)) {
+      vocabularyIds = [...existing.vocabulary_ids];
+    }
+  }
+
+  // Si no se encontraron por id de mazo custom, usar la función de filtro del mazo
+  if (vocabularyIds.length === 0 && deck.filterFn) {
+    vocabularyIds = vocabList.filter(deck.filterFn).map((v) => v.id);
+  }
+
+  const copyName = `${deck.title} (Copia)`;
+  return createCustomUserDeck(
+    copyName,
+    vocabularyIds,
+    `Copia editable de "${deck.title}"`,
+    userId
+  );
+}
+
 export const SYSTEM_DEFAULT_DECK_IDS = new Set([
   'jlpt-n5',
   'verbs',

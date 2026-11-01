@@ -306,6 +306,10 @@
             await refreshLocalData();
             syncManager.syncNow().catch((e) => console.warn('[Sync] Post-delete sync error:', e));
           }}
+          onDeckDuplicated={async () => {
+            await refreshLocalData();
+            syncManager.syncNow().catch((e) => console.warn('[Sync] Post-duplicate sync error:', e));
+          }}
         />
       {:else if currentTab === 'create-deck'}
         <CreateDeckScreen
