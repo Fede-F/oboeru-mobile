@@ -278,7 +278,7 @@
     </div>
 
     <div class="p-2.5 rounded-xl bg-[#0b0f15] border border-white/10 text-[11px] font-mono text-[#a7f3d0] break-all select-text">
-      mobile-ota-updater.fede-eagle.workers.dev?app={DEFAULT_APP_NAME}
+      mobile-ota-updater.fede-eagle.workers.dev/{DEFAULT_APP_NAME}/version
     </div>
 
     <div class="space-y-1.5 bg-[#0b0f15] p-3.5 rounded-2xl border border-white/10 text-xs">
