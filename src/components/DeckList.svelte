@@ -24,6 +24,7 @@
     onDeckDeleted?: () => void | Promise<void>;
     onDeckDuplicated?: () => void | Promise<void>;
     onEditDeck?: (deck: DeckSummary) => void;
+    onOpenAddWords?: (deck: DeckSummary) => void;
   }
 
   let {
@@ -37,7 +38,8 @@
     onOpenCreateDeck,
     onDeckDeleted,
     onDeckDuplicated,
-    onEditDeck
+    onEditDeck,
+    onOpenAddWords
   }: Props = $props();
 
   type SortCriterion = 'created' | 'name' | 'due' | 'size';
@@ -506,11 +508,23 @@
                   </span>
 
                   {#if deck.isCustom}
-                    <div class="w-7 h-7 rounded-full bg-white/15 flex items-center justify-center text-white">
+                    <button
+                      type="button"
+                      onclick={async (e) => {
+                        e.stopPropagation();
+                        await hapticImpactLight();
+                        if (onOpenAddWords) {
+                          onOpenAddWords(deck);
+                        }
+                      }}
+                      title="Agregar palabras a este mazo"
+                      aria-label="Agregar palabras a este mazo"
+                      class="w-7 h-7 rounded-full bg-white/20 hover:bg-white/35 active-press flex items-center justify-center text-white transition-all shadow-sm shrink-0"
+                    >
                       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                       </svg>
-                    </div>
+                    </button>
                   {/if}
                 </div>
               </button>

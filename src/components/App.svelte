@@ -11,6 +11,7 @@
   import DeckList from './DeckList.svelte';
   import CreateDeckScreen from './CreateDeckScreen.svelte';
   import EditDeckScreen from './EditDeckScreen.svelte';
+  import AddWordsToDeckScreen from './AddWordsToDeckScreen.svelte';
   import StudyCard from './StudyCard.svelte';
   import VocabularySearch from './VocabularySearch.svelte';
   import SyncPanel from './SyncPanel.svelte';
@@ -24,7 +25,7 @@
   import type { DeckSummary, ReviewRating, StudyCardItem } from '../lib/db/schema';
   import { syncManager, syncState, type SyncStatusState } from '../lib/sync/SyncManager';
 
-  type ActiveTab = 'dashboard' | 'create-deck' | 'edit-deck' | 'study' | 'search' | 'sync';
+  type ActiveTab = 'dashboard' | 'create-deck' | 'edit-deck' | 'add-words' | 'study' | 'search' | 'sync';
 
   // Svelte 5 Runes
   let currentTab = $state<ActiveTab>('dashboard');
@@ -34,6 +35,7 @@
   let selectedDeckTitle = $state('JLPT N5 Esencial');
   let activeStudyCards = $state<StudyCardItem[]>([]);
   let editingDeck = $state<DeckSummary | null>(null);
+  let targetDeckForAddWords = $state<DeckSummary | null>(null);
 
   let heatmapCells = $state<HeatmapDayCell[]>([]);
   let totalReviews = $state(0);
@@ -320,6 +322,10 @@
             editingDeck = deck;
             currentTab = 'edit-deck';
           }}
+          onOpenAddWords={(deck) => {
+            targetDeckForAddWords = deck;
+            currentTab = 'add-words';
+          }}
         />
       {:else if currentTab === 'create-deck'}
         <CreateDeckScreen
@@ -335,6 +341,19 @@
           onBack={async () => {
             await refreshLocalData();
             editingDeck = null;
+            currentTab = 'dashboard';
+          }}
+          onOpenAddWords={() => {
+            targetDeckForAddWords = editingDeck;
+            currentTab = 'add-words';
+          }}
+        />
+      {:else if currentTab === 'add-words' && targetDeckForAddWords}
+        <AddWordsToDeckScreen
+          deck={targetDeckForAddWords}
+          onBack={async () => {
+            await refreshLocalData();
+            targetDeckForAddWords = null;
             currentTab = 'dashboard';
           }}
         />
@@ -409,7 +428,7 @@
         <button
           type="button"
           onclick={() => switchTab('dashboard')}
-          class="touch-target flex flex-col items-center justify-center gap-1 transition-colors {currentTab === 'dashboard' || currentTab === 'create-deck' || currentTab === 'edit-deck' || currentTab === 'study'
+          class="touch-target flex flex-col items-center justify-center gap-1 transition-colors {currentTab === 'dashboard' || currentTab === 'create-deck' || currentTab === 'edit-deck' || currentTab === 'add-words' || currentTab === 'study'
             ? 'text-[#a7f3d0]'
             : 'text-slate-400 hover:text-slate-200'}"
         >

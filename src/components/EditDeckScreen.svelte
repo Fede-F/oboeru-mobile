@@ -10,9 +10,10 @@
   interface Props {
     deck: DeckSummary;
     onBack: () => Promise<void> | void;
+    onOpenAddWords?: () => void;
   }
 
-  let { deck, onBack }: Props = $props();
+  let { deck, onBack, onOpenAddWords }: Props = $props();
 
   let words = $state<VocabularyRecord[]>([]);
   let searchQuery = $state('');
@@ -121,6 +122,17 @@
         <span>Coincidencias: <strong class="text-[#a7f3d0]">{filteredWords.length}</strong></span>
       {/if}
     </div>
+
+    {#if onOpenAddWords}
+      <button
+        type="button"
+        onclick={onOpenAddWords}
+        class="w-full py-2.5 px-4 rounded-2xl bg-white/5 hover:bg-white/10 active-press border border-[#a7f3d0]/30 text-[#a7f3d0] font-bold text-xs flex items-center justify-center gap-2 transition-colors mt-2"
+      >
+        <span>➕</span>
+        <span>Buscar y agregar más palabras</span>
+      </button>
+    {/if}
   </section>
 
   <!-- Lista de Palabras -->
