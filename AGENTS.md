@@ -134,3 +134,14 @@ Para cualquier prueba de login, creación de mazos o sincronización contra el b
 - **Email:** `test@oboeru.app`
 - **Contraseña:** `OboeruTest2026!`
 
+---
+
+## 📌 7. Próximas Tareas y Requerimientos Pendientes
+
+### Configuración del Límite de Tarjetas por Sesión (Estilo Anki)
+- Permitir que el usuario configure la cantidad máxima de tarjetas a estudiar por sesión (o por día) en un mazo o globalmente.
+- **Respeto a la lógica Anki / SM-2**:
+  - Distinguir entre **Nuevas tarjetas por día** (ej. límite de 10 o 20 tarjetas nuevas) y **Repasos máximos por día** (tarjetas que ya están vencidas / due).
+  - Al cortar una sesión por límite, no se alteran los intervalos ni la fecha de vencimiento (`next_review_date`) de las tarjetas restantes; simplemente permanecen en cola para el día o la sesión siguiente.
+
+
