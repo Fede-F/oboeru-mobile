@@ -1,8 +1,15 @@
 <script lang="ts">
   import type { DeckSummary } from '../lib/db/schema';
   import type { HeatmapDayCell } from '../lib/db/database';
+  import { deleteCustomUserDeck } from '../lib/db/database';
   import StudyHeatmap from './StudyHeatmap.svelte';
-  import { hapticImpactLight, hapticSelection } from '../lib/haptics.js';
+  import {
+    hapticImpactLight,
+    hapticImpactMedium,
+    hapticSelection,
+    hapticSuccess,
+    hapticWarning
+  } from '../lib/haptics.js';
 
   interface Props {
     decks: DeckSummary[];
@@ -13,6 +20,7 @@
     onSelectDeck: (deck: DeckSummary) => void;
     onOpenSearch: () => void;
     onOpenCreateDeck: () => void;
+    onDeckDeleted?: () => void | Promise<void>;
   }
 
   let {
@@ -23,7 +31,8 @@
     todayCount = 0,
     onSelectDeck,
     onOpenSearch,
-    onOpenCreateDeck
+    onOpenCreateDeck,
+    onDeckDeleted
   }: Props = $props();
 
   type SortCriterion = 'created' | 'name' | 'due' | 'size';
@@ -32,6 +41,88 @@
   let sortBy = $state<SortCriterion>('created');
   let sortDirection = $state<'asc' | 'desc'>('desc');
   let ownershipFilter = $state<OwnershipFilter>('all');
+
+  // Estado para modal de confirmación de eliminación o aviso de sistema
+  let deckToDelete = $state<DeckSummary | null>(null);
+  let showDeleteModal = $state(false);
+  let showSystemDeckModal = $state(false);
+  let isDeleting = $state(false);
+
+  // Variables para la detección del gesto mantener apretado (long-press)
+  let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  let longPressFired = false;
+  let startX = 0;
+  let startY = 0;
+
+  function handlePointerDown(e: PointerEvent, deck: DeckSummary) {
+    longPressFired = false;
+    startX = e.clientX;
+    startY = e.clientY;
+
+    if (longPressTimer) clearTimeout(longPressTimer);
+    longPressTimer = setTimeout(async () => {
+      longPressFired = true;
+      if (deck.isCustom) {
+        await hapticImpactMedium();
+        deckToDelete = deck;
+        showDeleteModal = true;
+      } else {
+        await hapticWarning();
+        deckToDelete = deck;
+        showSystemDeckModal = true;
+      }
+    }, 550);
+  }
+
+  function handlePointerMove(e: PointerEvent) {
+    if (!longPressTimer) return;
+    const deltaX = Math.abs(e.clientX - startX);
+    const deltaY = Math.abs(e.clientY - startY);
+    // Si el usuario movió el dedo más de 10px, se considera scroll y se cancela el long-press
+    if (deltaX > 10 || deltaY > 10) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+  }
+
+  function handlePointerUpOrLeave() {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+  }
+
+  async function handleCardClick(deck: DeckSummary) {
+    if (longPressFired) {
+      longPressFired = false;
+      return;
+    }
+    await handleSelect(deck);
+  }
+
+  async function confirmDelete() {
+    if (!deckToDelete || !deckToDelete.isCustom) return;
+    isDeleting = true;
+    try {
+      await deleteCustomUserDeck(deckToDelete.id);
+      await hapticSuccess();
+      showDeleteModal = false;
+      deckToDelete = null;
+      if (onDeckDeleted) {
+        await onDeckDeleted();
+      }
+    } catch (err) {
+      console.error('Error al eliminar mazo:', err);
+    } finally {
+      isDeleting = false;
+    }
+  }
+
+  function cancelDelete() {
+    showDeleteModal = false;
+    showSystemDeckModal = false;
+    deckToDelete = null;
+  }
 
   const sortOptions: Array<{ id: SortCriterion; label: string }> = [
     { id: 'created', label: 'Fecha' },
@@ -162,7 +253,7 @@
             Mazos Disponibles ({sortedDecks.length})
           </h3>
           <span class="text-[10px] text-white/50">
-            Tocá el criterio para invertir orden
+            Mantené presionado para eliminar mazo
           </span>
         </div>
 
@@ -221,10 +312,15 @@
       {#each sortedDecks as deck (deck.id)}
         <button
           type="button"
-          onclick={() => handleSelect(deck)}
-          class="w-full h-[196px] text-left rounded-[26px] p-4 shadow-lg active-press transition-all flex flex-col justify-between {getDeckCardStyle(deck.accentVariant)}"
+          onpointerdown={(e) => handlePointerDown(e, deck)}
+          onpointermove={handlePointerMove}
+          onpointerup={handlePointerUpOrLeave}
+          onpointerleave={handlePointerUpOrLeave}
+          oncontextmenu={(e) => e.preventDefault()}
+          onclick={() => handleCardClick(deck)}
+          class="w-full h-[196px] text-left rounded-[26px] p-4 shadow-lg active-press transition-all flex flex-col justify-between select-none {getDeckCardStyle(deck.accentVariant)}"
         >
-          <!-- Cabecera: Nombre del mazo + Fecha chiquita + Tres puntos sutiles -->
+          <!-- Cabecera: Nombre del mazo + Fecha chiquita (sin 3 puntos) -->
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0">
               <h4 class="text-sm font-bold text-white leading-tight line-clamp-1">
@@ -236,9 +332,6 @@
                 </span>
               {/if}
             </div>
-            <span class="text-white/50 text-xs font-bold tracking-widest leading-none pt-0.5 select-none">
-              •••
-            </span>
           </div>
 
           <!-- Cuerpo Central: Total de Palabras y Para Hoy con tipografía blanca limpia -->
@@ -281,7 +374,7 @@
       <button
         type="button"
         onclick={handleCreateNew}
-        class="w-full h-[196px] text-left rounded-[26px] p-4 bg-[#171c20] hover:bg-[#1e252a] shadow-lg active-press transition-all flex flex-col justify-between group"
+        class="w-full h-[196px] text-left rounded-[26px] p-4 bg-[#171c20] hover:bg-[#1e252a] shadow-lg active-press transition-all flex flex-col justify-between group select-none"
       >
         <div class="flex items-start justify-between">
           <div>
@@ -292,9 +385,6 @@
               Personalizado
             </span>
           </div>
-          <span class="text-white/50 text-xs font-bold tracking-widest leading-none pt-0.5">
-            •••
-          </span>
         </div>
 
         <div class="my-1">
@@ -327,4 +417,100 @@
     {currentStreak}
     {todayCount}
   />
+
+  <!-- Modal de Confirmación para Eliminar Mazo Personalizado -->
+  {#if showDeleteModal && deckToDelete}
+    <div
+      class="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-5"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="delete-deck-title"
+    >
+      <div
+        class="bg-[#181d22] border border-white/10 rounded-[30px] p-6 max-w-sm w-full shadow-2xl space-y-5 text-center"
+      >
+        <div class="w-14 h-14 mx-auto rounded-full bg-rose-500/15 text-rose-400 flex items-center justify-center">
+          <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+          </svg>
+        </div>
+
+        <div class="space-y-1.5">
+          <h3 id="delete-deck-title" class="text-lg font-extrabold text-white">
+            ¿Eliminar mazo?
+          </h3>
+          <p class="text-sm font-semibold text-rose-300 line-clamp-1">
+            "{deckToDelete.title}"
+          </p>
+          <p class="text-xs text-white/60 leading-relaxed pt-1">
+            Se eliminará este mazo personalizado. Las palabras que contiene seguirán en tu diccionario y no perderás tu historial de repasos.
+          </p>
+        </div>
+
+        <div class="flex flex-col gap-2.5 pt-1">
+          <button
+            type="button"
+            onclick={confirmDelete}
+            disabled={isDeleting}
+            class="touch-target w-full py-3 px-4 rounded-2xl bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white font-bold text-sm active-press flex items-center justify-center gap-2 shadow-lg shadow-rose-950/40 disabled:opacity-50"
+          >
+            {#if isDeleting}
+              <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              <span>Eliminando...</span>
+            {:else}
+              <span>Eliminar mazo</span>
+            {/if}
+          </button>
+
+          <button
+            type="button"
+            onclick={cancelDelete}
+            disabled={isDeleting}
+            class="touch-target w-full py-3 px-4 rounded-2xl bg-white/10 hover:bg-white/15 text-white/80 hover:text-white font-bold text-sm active-press"
+          >
+            Cancelar
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Modal Informativo para Mazos Predeterminados -->
+  {#if showSystemDeckModal && deckToDelete}
+    <div
+      class="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-5"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        class="bg-[#181d22] border border-white/10 rounded-[30px] p-6 max-w-sm w-full shadow-2xl space-y-5 text-center"
+      >
+        <div class="w-14 h-14 mx-auto rounded-full bg-amber-500/15 text-amber-400 flex items-center justify-center">
+          <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+          </svg>
+        </div>
+
+        <div class="space-y-1.5">
+          <h3 class="text-lg font-extrabold text-white">
+            Mazo Predeterminado
+          </h3>
+          <p class="text-sm font-semibold text-white/90">
+            "{deckToDelete.title}"
+          </p>
+          <p class="text-xs text-white/60 leading-relaxed pt-1">
+            Los mazos estándar del sistema (JLPT) son de solo lectura y no se pueden eliminar. Podés crear y gestionar todos los mazos propios que desees desde "Crear mazo".
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onclick={cancelDelete}
+          class="touch-target w-full py-3 px-4 rounded-2xl bg-white text-slate-950 font-bold text-sm active-press"
+        >
+          Entendido
+        </button>
+      </div>
+    </div>
+  {/if}
 </div>

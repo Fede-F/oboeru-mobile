@@ -302,6 +302,10 @@
           onSelectDeck={handleSelectDeck}
           onOpenSearch={() => switchTab('search')}
           onOpenCreateDeck={() => switchTab('create-deck')}
+          onDeckDeleted={async () => {
+            await refreshLocalData();
+            syncManager.syncNow().catch((e) => console.warn('[Sync] Post-delete sync error:', e));
+          }}
         />
       {:else if currentTab === 'create-deck'}
         <CreateDeckScreen
