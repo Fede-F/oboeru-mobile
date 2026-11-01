@@ -105,16 +105,13 @@
 <div class="space-y-4">
   <!-- Caja de Búsqueda conectada al catálogo completo N5-N1 del Servidor -->
   <section class="rounded-3xl bg-[#121820] border border-white/10 p-4 space-y-3 shadow-xl">
-    <div class="flex items-center justify-between">
-      <div>
-        <h2 class="text-base font-bold text-white flex items-center gap-2">
-          <span>辞書 • Diccionario Japonés</span>
-          <span class="px-2 py-0.5 rounded-full bg-[#a7f3d0]/15 text-[#a7f3d0] text-[10px] font-bold">
-            JLPT N5–N1
-          </span>
+    <div class="flex items-center justify-between gap-3">
+      <div class="min-w-0">
+        <h2 class="text-base font-bold text-white tracking-tight leading-snug">
+          辞書 • Diccionario Japonés
         </h2>
-        <p class="text-[11px] text-slate-400 mt-0.5">
-          Buscá entre las 7.800 palabras y guardá en tu teléfono las que elijas estudiar
+        <p class="text-[11px] text-slate-400 mt-0.5 leading-normal">
+          Buscá entre más de 7.800 palabras y guardalas en tus mazos
         </p>
       </div>
 
@@ -124,11 +121,12 @@
           await hapticSelection();
           autoKanaMode = !autoKanaMode;
         }}
-        class="touch-target px-3 py-1.5 rounded-2xl border text-[11px] font-bold active-press shrink-0 {autoKanaMode
+        class="touch-target px-2.5 py-1.5 rounded-xl border text-[11px] font-bold active-press shrink-0 flex items-center gap-1.5 {autoKanaMode
           ? 'bg-[#1c2b25] border-[#a7f3d0]/40 text-[#a7f3d0]'
           : 'bg-[#171717] border-white/10 text-slate-400'}"
       >
-        あ Autoconvertir: {autoKanaMode ? 'Sí' : 'No'}
+        <span>あ</span>
+        <span>Kana: {autoKanaMode ? 'ON' : 'OFF'}</span>
       </button>
     </div>
 
