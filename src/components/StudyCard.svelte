@@ -170,12 +170,14 @@
         type="button"
         onclick={toggleFurigana}
         aria-pressed={showFurigana}
-        class="touch-target px-3 py-1.5 rounded-2xl text-xs font-bold active-press transition-colors flex items-center gap-1.5 {showFurigana
+        class="touch-target px-3 py-2 rounded-2xl text-xs font-bold active-press transition-colors flex items-center gap-1.5 {showFurigana
           ? 'bg-white text-slate-950'
           : 'bg-[#171717] text-white/70'}"
       >
-        <span class="text-[11px]">Furigana (Lectura)</span>
-        <span class="text-[10px] font-mono font-extrabold uppercase">{showFurigana ? "ON" : "OFF"}</span>
+        <span class="text-xs font-semibold">Furigana</span>
+        <span class="text-[10px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md {showFurigana ? 'bg-slate-950/10 text-slate-900' : 'bg-white/10 text-white/80'}">
+          {showFurigana ? "ON" : "OFF"}
+        </span>
       </button>
 
       {#if currentCard}
