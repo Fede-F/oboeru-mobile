@@ -1,0 +1,25 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1024" height="1024" rx="232" fill="#0d131a"/>
+
+  <!-- 1. Tarjeta Trasera (Verde Oliva Mate) -->
+  <rect x="356" y="324" width="484" height="484" rx="92" fill="#3b4d43"/>
+
+  <!-- Elementos de la Tarjeta Trasera -->
+  <circle cx="728" cy="436" r="36" fill="#fbbf24"/>
+  <rect x="520" y="612" width="232" height="38" rx="19" fill="#a7f3d0"/>
+  <rect x="520" y="680" width="148" height="38" rx="19" fill="#6ee7b7" opacity="0.65"/>
+
+  <!-- 2. Sombra de Proyección a 45° sobre la Tarjeta Trasera (Estilo Google Material) -->
+  <path d="M356 684 L676 324 H700 V580 L480 808 H448 C397.2 808 356 766.8 356 716 Z" fill="#1e2823" opacity="0.48"/>
+
+  <!-- 3. Tarjeta Frontal (Verde Menta Oboeru #a7f3d0) -->
+  <rect x="184" y="196" width="492" height="492" rx="92" fill="#a7f3d0"/>
+
+  <!-- Glifo Geométrico en Tarjeta Frontal: Corona y ventana de「覚」(Oboeru) -->
+  <rect x="322" y="294" width="38" height="58" rx="19" fill="#101815"/>
+  <rect x="411" y="276" width="38" height="76" rx="19" fill="#101815"/>
+  <rect x="500" y="294" width="38" height="58" rx="19" fill="#101815"/>
+  <rect x="284" y="344" width="292" height="38" rx="19" fill="#101815"/>
+  <rect x="330" y="412" width="200" height="152" rx="38" fill="none" stroke="#101815" stroke-width="38"/>
+  <line x1="348" y1="488" x2="512" y2="488" stroke="#101815" stroke-width="34" stroke-linecap="round"/>
+</svg>

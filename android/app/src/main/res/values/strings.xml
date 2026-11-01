@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Oboeru</string>
+    <string name="title_activity_main">Oboeru</string>
+    <string name="package_name">ar.planner.oboeru</string>
+    <string name="custom_url_scheme">ar.planner.oboeru</string>
+</resources>

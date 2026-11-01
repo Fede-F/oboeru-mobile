@@ -1,0 +1,49 @@
+{
+  "name": "oboeru-mobile",
+  "version": "1.0.0",
+  "description": "Oboeru — Offline-first Japanese SRS Flashcards Mobile App (Astro v5, Svelte 5, Tailwind CSS v4, Capacitor v8, SQLite/IndexedDB & Capgo OTA)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev --host",
+    "build": "astro build",
+    "preview": "astro preview",
+    "cap:sync": "npm run build && cap sync",
+    "cap:copy": "npm run build && cap copy",
+    "cap:open:android": "cap open android",
+    "cap:open:ios": "cap open ios",
+    "cap:add:android": "cap add android",
+    "cap:add:ios": "cap add ios",
+    "bundle:ota": "npm run build && node scripts/bundle-ota.js",
+    "assets:generate": "capacitor-assets generate --android --ios --assetPath assets",
+    "assets:placeholders": "node scripts/create-placeholder-assets.js",
+    "bump:patch": "npm version patch --no-git-tag-version",
+    "bump:minor": "npm version minor --no-git-tag-version",
+    "bump:major": "npm version major --no-git-tag-version"
+  },
+  "dependencies": {
+    "@astrojs/svelte": "^7.2.5",
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/app": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
+    "@capacitor/haptics": "^8.0.0",
+    "@capacitor/keyboard": "^8.0.0",
+    "@capacitor/splash-screen": "^8.0.0",
+    "@capacitor/status-bar": "^8.0.0",
+    "@capgo/capacitor-updater": "^8.52.1",
+    "@tailwindcss/vite": "^4.0.0",
+    "astro": "^5.0.0",
+    "dompurify": "^3.2.4",
+    "lucide-svelte": "^0.475.0",
+    "svelte": "^5.0.0",
+    "tailwindcss": "^4.0.0",
+    "wanakana": "^5.3.1"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.0.0",
+    "@types/dompurify": "^3.0.5",
+    "archiver": "^7.0.1",
+    "typescript": "^5.7.0"
+  }
+}
