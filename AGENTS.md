@@ -47,12 +47,13 @@ El proyecto es una **aplicación móvil híbrida de alto rendimiento** empaqueta
 - **Nunca** elimines ni pospongas la llamada a `notifyAppReady()`.
 
 ### Flujo de Actualización en Segundo Plano
-1. Al abrir la app, tras `notifyAppReady()`, se ejecuta `checkForOtaUpdates()`.
-2. El cliente consulta al Cloudflare Worker con el nombre de la app y la versión actual:
-   `https://mobile-ota-updater.fede-eagle.workers.dev?app=<appName>&version=<version>`
-3. Si el worker indica que hay un release superior en GitHub, Capgo descarga el archivo `dist.zip`.
-4. El paquete se instala con `CapacitorUpdater.set()`.
-5. Gracias a la configuración `resetWhenUpdate: false` en `capacitor.config.ts`, la experiencia del usuario no se interrumpe; el nuevo código se activará en la siguiente apertura o cuando el usuario pulse "Reiniciar".
+1. En `src/lib/otaUpdater.js`, `DEFAULT_APP_NAME` **debe coincidir exactamente con el nombre del repositorio en GitHub** (`oboeru-mobile`).
+2. Al abrir la app, tras `notifyAppReady()`, se ejecuta `checkForOtaUpdates()`.
+3. El cliente consulta al Cloudflare Worker mediante `GET` simple (sin headers extra para evitar preflights CORS):
+   `https://mobile-ota-updater.fede-eagle.workers.dev/<repo>/version`
+4. Si el worker indica que hay un release superior en GitHub, Capgo descarga el archivo `dist.zip` desde `https://mobile-ota-updater.fede-eagle.workers.dev/<repo>/download`.
+5. El paquete se instala con `CapacitorUpdater.set()`.
+6. Gracias a la configuración `resetWhenUpdate: false` en `capacitor.config.ts`, la experiencia del usuario no se interrumpe; el nuevo código se activará en la siguiente apertura o cuando el usuario pulse "Reiniciar".
 
 ### 🏷️ Visualización de Versión en la UI (No Invasiva)
 Para auditar la versión activa sin perjudicar la UX ni confundir al usuario final:
