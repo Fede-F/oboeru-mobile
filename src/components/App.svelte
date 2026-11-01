@@ -55,6 +55,10 @@
 
   let showMeteredSyncPrompt = $state(false);
 
+  let userFirstName = $derived(
+    syncInfo.userFullName ? syncInfo.userFullName.trim().split(/\s+/)[0] : ''
+  );
+
   let otaState = $state({
     status: 'idle',
     currentVersion: null,
@@ -214,8 +218,8 @@
           <p class="text-[11px] font-medium text-white/60 leading-tight mt-0.5 truncate">
             {#if syncInfo.pendingChanges > 0}
               <span class="text-amber-300">{syncInfo.pendingChanges} repasos por guardar</span>
-            {:else if syncInfo.userFullName}
-              <span>Hola, <strong class="text-white">{syncInfo.userFullName}</strong></span>
+            {:else if userFirstName}
+              <span>Hola, <strong class="text-white">{userFirstName}</strong></span>
             {:else}
               <span>Progreso al día</span>
             {/if}
