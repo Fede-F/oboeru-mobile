@@ -141,10 +141,88 @@ export async function clearPersistedSession(): Promise<void> {
 }
 
 /**
+ * Migra cualquier tarjeta o registro de vocabulario que tenga IDs de semilla ficticios (11111111-...)
+ * hacia los UUIDs reales definitivos de PostgreSQL.
+ */
+export async function migrateLegacySeedData(): Promise<void> {
+  const db = await openLocalDb();
+  const [vocabList, reviewList] = await Promise.all([getAllVocabulary(), getAllReviews()]);
+
+  // Mapa de clave natural -> UUID real en INITIAL_VOCABULARY_SEED
+  const seedNaturalKeyToRealId = new Map<string, string>();
+  for (const s of INITIAL_VOCABULARY_SEED) {
+    seedNaturalKeyToRealId.set(getVocabNaturalKey(s), s.id);
+  }
+
+  // 1. Mapear qué IDs viejos corresponden a qué IDs reales
+  const oldIdToNewId = new Map<string, string>();
+  for (const v of vocabList) {
+    if (v.id.startsWith('11111111-')) {
+      const naturalKey = getVocabNaturalKey(v);
+      const realId = seedNaturalKeyToRealId.get(naturalKey);
+      if (realId) {
+        oldIdToNewId.set(v.id, realId);
+      }
+    }
+  }
+
+  if (oldIdToNewId.size === 0) {
+    // Si no hay vocabulario viejo, verificar si hay reviews huérfanos con 11111111-
+    const orphanReviews = reviewList.filter((r) => r.vocabulary_id.startsWith('11111111-'));
+    if (orphanReviews.length === 0) return;
+
+    // Eliminar reviews huérfanos que apunten a IDs inexistentes
+    const tx = db.transaction('srs_reviews', 'readwrite');
+    const store = tx.objectStore('srs_reviews');
+    for (const r of orphanReviews) {
+      store.delete(r.id);
+    }
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    return;
+  }
+
+  const tx = db.transaction(['vocabulary', 'srs_reviews'], 'readwrite');
+  const vocabStore = tx.objectStore('vocabulary');
+  const reviewStore = tx.objectStore('srs_reviews');
+
+  // Eliminar vocabulario viejo con ID ficticio
+  for (const [oldId] of oldIdToNewId) {
+    vocabStore.delete(oldId);
+  }
+
+  // Actualizar reviews que apuntaban a IDs viejos
+  for (const r of reviewList) {
+    if (oldIdToNewId.has(r.vocabulary_id)) {
+      const newVocabId = oldIdToNewId.get(r.vocabulary_id)!;
+      reviewStore.delete(r.id);
+      reviewStore.put({
+        ...r,
+        vocabulary_id: newVocabId,
+        dirty: false
+      });
+    } else if (r.vocabulary_id.startsWith('11111111-')) {
+      // Si no tiene mapeo, borrar para que no provoque 500
+      reviewStore.delete(r.id);
+    }
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/**
  * Inicializa la base de datos local y siembra el diccionario JLPT + actividad inicial offline
  */
 export async function initLocalDatabase(userId: string = LOCAL_DEFAULT_USER_ID): Promise<void> {
   const db = await openLocalDb();
+
+  // Migrar y sanear datos legacy de semillas previas
+  await migrateLegacySeedData();
 
   // Sembrar o completar vocabulario base deduplicado por (kanji limpio + lectura)
   await upsertVocabularyBatch(INITIAL_VOCABULARY_SEED);

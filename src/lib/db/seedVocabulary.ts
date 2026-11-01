@@ -1,12 +1,12 @@
 import type { VocabularyRecord } from './schema';
 
 /**
- * Catálogo semilla offline-first replicado de oboeru_prod (JLPT N5, N4, N3 y Verbos).
+ * Catálogo semilla offline-first sincronizado 1:1 con los UUIDs reales de oboeru_prod.
  * Incluye soporte nativo para etiquetas HTML <ruby> en kanji/oraciones y datos limpios.
  */
 export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
   {
-    id: '11111111-1111-4111-8111-000000000001',
+    id: 'e1b83687-486f-43f9-8965-9409a507bf13',
     kanji: '<ruby>覚<rt>おぼ</rt></ruby>える',
     reading: 'おぼえる',
     meaning_es: 'recordar; memorizar; aprender',
@@ -17,7 +17,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000002',
+    id: 'ff62b02c-0edd-4cdd-852b-89ca0bf1af93',
     kanji: '<ruby>食<rt>た</rt></ruby>べる',
     reading: 'たべる',
     meaning_es: 'comer',
@@ -28,7 +28,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000003',
+    id: 'f2f210ad-3e28-4fef-96df-6da87158dbbb',
     kanji: '<ruby>飲<rt>の</rt></ruby>む',
     reading: 'のむ',
     meaning_es: 'beber; tomar',
@@ -39,7 +39,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000004',
+    id: 'c2ba27b8-e198-48de-a1e6-99abcbdda89c',
     kanji: '<ruby>行<rt>い</rt></ruby>く',
     reading: 'いく',
     meaning_es: 'ir',
@@ -50,7 +50,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000005',
+    id: '4978ef76-58d7-4e99-a2b8-e193e15df2f6',
     kanji: '<ruby>見<rt>み</rt></ruby>る',
     reading: 'みる',
     meaning_es: 'ver; mirar; observar',
@@ -61,7 +61,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000006',
+    id: 'f8e093e8-a303-4e8b-a46a-ef07d344b05e',
     kanji: '<ruby>読<rt>よ</rt></ruby>む',
     reading: 'よむ',
     meaning_es: 'leer',
@@ -72,7 +72,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000007',
+    id: '07893842-615d-4dfe-8618-070f6281e47e',
     kanji: '<ruby>聞<rt>き</rt></ruby>く',
     reading: 'きく',
     meaning_es: 'escuchar; oír; preguntar',
@@ -83,7 +83,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000008',
+    id: 'e2f64bd0-7a16-4b13-b01c-636d3e9fbbd2',
     kanji: '<ruby>話<rt>はな</rt></ruby>す',
     reading: 'はなす',
     meaning_es: 'hablar; conversar',
@@ -94,7 +94,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000009',
+    id: 'b1f95c67-fca7-4433-a204-a8b959fef98b',
     kanji: '<ruby>買<rt>か</rt></ruby>う',
     reading: 'かう',
     meaning_es: 'comprar',
@@ -105,7 +105,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000010',
+    id: '5f7c1670-42f7-49b3-b398-f9eae5b91a93',
     kanji: null,
     reading: 'いつも',
     meaning_es: 'siempre; habitualmente',
@@ -116,7 +116,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000011',
+    id: '0b8ae897-0ab6-43f2-aff1-8ac947c20be6',
     kanji: null,
     reading: 'ゆっくり',
     meaning_es: 'despacio; lentamente; con calma',
@@ -127,7 +127,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000012',
+    id: 'f7e23b39-316a-44a7-9d77-eb01dc069a5a',
     kanji: '<ruby>先生<rt>せんせい</rt></ruby>',
     reading: 'せんせい',
     meaning_es: 'profesor; maestro; doctor',
@@ -138,7 +138,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000013',
+    id: '9b90e089-894c-458b-b9c8-730b63ebb21f',
     kanji: '<ruby>学生<rt>がくせい</rt></ruby>',
     reading: 'がくせい',
     meaning_es: 'estudiante',
@@ -149,7 +149,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000014',
+    id: 'df45f236-d57e-4ef2-838d-c36535b79fd6',
     kanji: '<ruby>友達<rt>ともだち</rt></ruby>',
     reading: 'ともだち',
     meaning_es: 'amigo; amiga',
@@ -160,7 +160,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000015',
+    id: 'd7e1e8db-731b-46d4-a115-e1ae517956c7',
     kanji: '<ruby>時間<rt>じかん</rt></ruby>',
     reading: 'じかん',
     meaning_es: 'tiempo; hora',
@@ -171,7 +171,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000016',
+    id: 'd4425451-6c8c-472a-80a1-f850f9e32fdb',
     kanji: '<ruby>約束<rt>やくそく</rt></ruby>',
     reading: 'やくそく',
     meaning_es: 'promesa; cita; compromiso',
@@ -182,7 +182,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000017',
+    id: 'd3e01516-d226-4c6e-81a4-d4125bc47f2b',
     kanji: '<ruby>準備<rt>じゅんび</rt></ruby>',
     reading: 'じゅんび',
     meaning_es: 'preparación; preparativos',
@@ -193,7 +193,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000018',
+    id: '4f6a2aa1-b05d-47c2-9ef7-21e78f0b852b',
     kanji: '<ruby>経験<rt>けいけん</rt></ruby>',
     reading: 'けいけん',
     meaning_es: 'experiencia',
@@ -204,7 +204,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000019',
+    id: '5c647ddd-0162-4ead-9952-da7f3372fa4e',
     kanji: '<ruby>習慣<rt>しゅうかん</rt></ruby>',
     reading: 'しゅうかん',
     meaning_es: 'hábito; costumbre',
@@ -215,7 +215,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000020',
+    id: '603529fd-4863-4ecd-9d1d-8a427a6784b5',
     kanji: '<ruby>継続<rt>けいぞく</rt></ruby>',
     reading: 'けいぞく',
     meaning_es: 'continuación; constancia',
@@ -226,7 +226,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000021',
+    id: '038bd4f7-7cfa-4c0f-86bd-6fb66e276c7e',
     kanji: '<ruby>食<rt>た</rt></ruby>べ<ruby>物<rt>もの</rt></ruby>',
     reading: 'たべもの',
     meaning_es: 'comida; alimento',
@@ -237,7 +237,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000022',
+    id: '7a5e537b-ddde-4394-ad41-a6ae39664cef',
     kanji: 'ご<ruby>飯<rt>はん</rt></ruby>',
     reading: 'ごはん',
     meaning_es: 'arroz cocido; comida',
@@ -248,7 +248,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000023',
+    id: 'ff6ee796-7c6a-4579-9d6a-06d1a7809fd1',
     kanji: '<ruby>料理<rt>りょうり</rt></ruby>',
     reading: 'りょうり',
     meaning_es: 'cocina; comida; plato',
@@ -259,7 +259,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000024',
+    id: 'dead9357-2518-4ec0-a296-642530642124',
     kanji: '<ruby>飲<rt>の</rt></ruby>み<ruby>物<rt>もの</rt></ruby>',
     reading: 'のみもの',
     meaning_es: 'bebida',
@@ -270,7 +270,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000025',
+    id: 'ac166e39-5b1f-4869-aded-2b98202934bf',
     kanji: '<ruby>水<rt>みず</rt></ruby>',
     reading: 'みず',
     meaning_es: 'agua',
@@ -281,7 +281,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000026',
+    id: 'ad5c991e-865b-4051-b9f5-167263c00d96',
     kanji: 'お<ruby>茶<rt>ちゃ</rt></ruby>',
     reading: 'おちゃ',
     meaning_es: 'té; té verde',
@@ -292,7 +292,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000027',
+    id: '292e286b-01aa-4c11-a463-a1c12af2667d',
     kanji: '<ruby>肉<rt>にく</rt></ruby>',
     reading: 'にく',
     meaning_es: 'carne',
@@ -303,7 +303,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000028',
+    id: '10d9b521-9e3e-43a4-b25c-3a233e26c368',
     kanji: '<ruby>魚<rt>さかな</rt></ruby>',
     reading: 'さかな',
     meaning_es: 'pescado; pez',
@@ -314,7 +314,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000029',
+    id: '03955632-9316-4aa2-9cd0-bb00df820839',
     kanji: '<ruby>野菜<rt>やさい</rt></ruby>',
     reading: 'やさい',
     meaning_es: 'verdura; vegetal',
@@ -325,7 +325,7 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   },
   {
-    id: '11111111-1111-4111-8111-000000000030',
+    id: '6acb80e2-b08e-441d-840f-9668032cf8e9',
     kanji: '<ruby>果物<rt>くだもの</rt></ruby>',
     reading: 'くだもの',
     meaning_es: 'fruta',
@@ -336,4 +336,3 @@ export const INITIAL_VOCABULARY_SEED: VocabularyRecord[] = [
     updated_at: '2026-10-31T20:00:00.000Z'
   }
 ];
-

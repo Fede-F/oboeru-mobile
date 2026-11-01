@@ -18,6 +18,7 @@ import {
   getDirtyUserDecks,
   loadPersistedSession,
   LOCAL_DEFAULT_USER_ID,
+  migrateLegacySeedData,
   savePersistedSession,
   searchLocalVocabulary,
   upsertReviewsBatchLWW,
@@ -407,6 +408,9 @@ export class SyncManager {
       return { pushed: 0, pulled: 0, skippedStale: 0 };
     }
 
+    // Saneamiento y migración preventiva de IDs de semilla antiguos antes de evaluar el lote
+    await migrateLegacySeedData();
+
     const userId = this.getUserId();
     const [dirtyBefore, dirtyDecksBefore, dirtyLogsBefore] = await Promise.all([
       getDirtyReviews(),
@@ -450,8 +454,15 @@ export class SyncManager {
         const batches = chunkBatch(dirtyBefore, MAX_SYNC_BATCH_SIZE);
 
         for (const batch of batches) {
+          // Filtramos cualquier review con ID ficticio que no deba alcanzar el servidor
+          const validReviews = batch.filter((r) => !r.vocabulary_id.startsWith('11111111-'));
+          if (validReviews.length === 0) {
+            await clearDirtyFlags(batch.map((item) => item.vocabulary_id));
+            continue;
+          }
+
           const payload = {
-            reviews: batch.map((r) => ({
+            reviews: validReviews.map((r) => ({
               vocabulary_id: r.vocabulary_id,
               state: r.state,
               ease_factor: Number(r.ease_factor),
