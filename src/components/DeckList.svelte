@@ -186,6 +186,26 @@
     }
   }
 
+  function getDeckProgressBarColor(variant: DeckSummary['accentVariant']): string {
+    switch (variant) {
+      case 'mint':
+        return 'bg-[#a7f3d0]';
+      case 'olive':
+        return 'bg-[#86efac]';
+      case 'emerald':
+        return 'bg-[#5eead4]';
+      default:
+        return 'bg-[#94a3b8]';
+    }
+  }
+
+  function getDeckProgressPercent(deck: DeckSummary): number {
+    if (!deck.totalCards || deck.totalCards === 0) return 0;
+    // Porcentaje de progreso: tarjetas dominadas respecto al total (mínimo 0%, máx 100%)
+    const pct = Math.round(((deck.masteredCards || 0) / deck.totalCards) * 100);
+    return Math.min(100, Math.max(0, pct));
+  }
+
   async function handleSortChange(criterion: SortCriterion) {
     await hapticSelection();
     if (sortBy === criterion) {
@@ -334,24 +354,40 @@
             </div>
           </div>
 
-          <!-- Cuerpo Central: Total de Palabras y Para Hoy con tipografía blanca limpia -->
-          <div class="space-y-1.5 my-1">
-            <div>
-              <span class="text-2xl font-extrabold text-white leading-none block">
-                {deck.totalCards}
-              </span>
-              <span class="text-[10px] text-white/60 font-medium block mt-0.5">
-                Palabras
-              </span>
+          <!-- Cuerpo Central: Total de Palabras y Para Hoy + Barra de Progreso Sutil -->
+          <div class="my-auto space-y-3">
+            <div class="flex items-end justify-between">
+              <div>
+                <span class="text-2xl font-extrabold text-white leading-none block">
+                  {deck.totalCards}
+                </span>
+                <span class="text-[10px] text-white/60 font-medium block mt-0.5">
+                  Palabras
+                </span>
+              </div>
+
+              <div class="text-right">
+                <span class="text-lg font-extrabold text-white leading-none block">
+                  {deck.dueCards}
+                </span>
+                <span class="text-[10px] text-white/60 font-medium block mt-0.5">
+                  Para hoy
+                </span>
+              </div>
             </div>
 
-            <div>
-              <span class="text-lg font-extrabold text-white leading-none block">
-                {deck.dueCards}
-              </span>
-              <span class="text-[10px] text-white/60 font-medium block mt-0.5">
-                Para hoy
-              </span>
+            <!-- Barra de Progreso Sutil integrada con el color del mazo -->
+            <div class="space-y-1">
+              <div class="w-full h-1.5 rounded-full bg-black/25 overflow-hidden">
+                <div
+                  class="h-full rounded-full transition-all duration-500 {getDeckProgressBarColor(deck.accentVariant)}"
+                  style="width: {getDeckProgressPercent(deck)}%"
+                ></div>
+              </div>
+              <div class="flex items-center justify-between text-[9px] text-white/50 font-medium">
+                <span>Progreso</span>
+                <span>{getDeckProgressPercent(deck)}%</span>
+              </div>
             </div>
           </div>
 
