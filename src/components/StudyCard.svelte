@@ -244,7 +244,7 @@
         }
       }}
       aria-label="Tocar el centro de la tarjeta para voltear"
-      class="min-h-[235px] max-h-[310px] rounded-[28px] bg-gradient-to-br from-[#43534a] via-[#2f3b35] to-[#1a231f] shadow-2xl p-4 sm:p-5 flex flex-col justify-between relative overflow-y-auto cursor-pointer active-press {showFurigana
+      class="min-h-[320px] max-h-[460px] rounded-[28px] bg-gradient-to-br from-[#43534a] via-[#2f3b35] to-[#1a231f] shadow-2xl p-4 sm:p-5 flex flex-col justify-between relative overflow-y-auto cursor-pointer active-press {showFurigana
         ? ''
         : 'furigana-hidden'}"
     >
