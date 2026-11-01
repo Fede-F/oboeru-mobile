@@ -1,21 +1,50 @@
 import { writable } from 'svelte/store';
-import type { SrsReviewRecord, SrsState, VocabularyRecord } from '../db/schema';
+import type {
+  SrsReviewRecord,
+  SrsState,
+  StudyLogRecord,
+  UserDeckRecord,
+  VocabularyRecord
+} from '../db/schema';
 import {
   clearDirtyFlags,
+  clearDirtyStudyLogFlags,
+  clearDirtyUserDeckFlags,
+  clearPersistedSession,
+  getAllReviews,
+  getAllVocabulary,
   getDirtyReviews,
+  getDirtyStudyLogs,
+  getDirtyUserDecks,
+  loadPersistedSession,
   LOCAL_DEFAULT_USER_ID,
+  savePersistedSession,
+  searchLocalVocabulary,
   upsertReviewsBatchLWW,
+  upsertStudyLogsBatchLWW,
+  upsertUserDecksBatchLWW,
   upsertVocabularyBatch
 } from '../db/database';
-import { normalizeVocabularyRecord } from '../utils/japanese';
+import { convertSearchQueryToKana, normalizeVocabularyRecord } from '../utils/japanese';
 
 export const OBOERU_API_BASE_URL = 'https://oboeru-api.planner.ar';
 export const MAX_SYNC_BATCH_SIZE = 200;
 
+export type SyncNetworkPolicy = 'wifi_only' | 'always';
+export type DetectedNetworkType = 'wifi' | 'metered' | 'offline';
+
+interface NavigatorConnectionLike {
+  type?: string;
+  effectiveType?: string;
+  saveData?: boolean;
+  addEventListener?: (type: string, listener: () => void) => void;
+}
+
 const STORAGE_KEYS = {
   AUTH_TOKEN: 'oboeru_jwt_token',
   USER_PROFILE: 'oboeru_user_profile',
-  LAST_SYNC_AT: 'oboeru_last_sync_at'
+  LAST_SYNC_AT: 'oboeru_last_sync_at',
+  SYNC_NETWORK_POLICY: 'oboeru_sync_network_policy'
 } as const;
 
 export interface SyncStatusState {
@@ -27,7 +56,10 @@ export interface SyncStatusState {
   skippedLwwStale: number;
   isAuthenticated: boolean;
   userEmail: string | null;
+  userFullName: string | null;
   errorMessage: string | null;
+  networkPolicy: SyncNetworkPolicy;
+  networkType: DetectedNetworkType;
 }
 
 export const syncState = writable<SyncStatusState>({
@@ -39,7 +71,10 @@ export const syncState = writable<SyncStatusState>({
   skippedLwwStale: 0,
   isAuthenticated: false,
   userEmail: null,
-  errorMessage: null
+  userFullName: null,
+  errorMessage: null,
+  networkPolicy: 'wifi_only',
+  networkType: 'wifi'
 });
 
 /**
@@ -62,31 +97,171 @@ export class SyncManager {
     if (typeof window !== 'undefined') {
       this.hydrateStoredMeta();
       window.addEventListener('online', () => {
-        this.syncNow().catch(() => {});
+        this.refreshNetworkInfo();
+        this.tryAutoSync().catch(() => {});
       });
       window.addEventListener('offline', () => {
+        this.refreshNetworkInfo();
         this.refreshPendingCount('offline');
       });
+
+      const conn = this.getNavigatorConnection();
+      if (conn && typeof conn.addEventListener === 'function') {
+        conn.addEventListener('change', () => {
+          this.refreshNetworkInfo();
+          this.tryAutoSync().catch(() => {});
+        });
+      }
     }
+  }
+
+  private getNavigatorConnection(): NavigatorConnectionLike | null {
+    if (typeof navigator === 'undefined') return null;
+    const nav = navigator as Navigator & {
+      connection?: NavigatorConnectionLike;
+      mozConnection?: NavigatorConnectionLike;
+      webkitConnection?: NavigatorConnectionLike;
+    };
+    return nav.connection || nav.mozConnection || nav.webkitConnection || null;
+  }
+
+  /**
+   * Detecta el estado actual de red:
+   * - 'offline': sin conexión
+   * - 'metered': red celular / medida (LTE, 5G, 4G, 3G, wimax, o modo ahorro de datos saveData)
+   * - 'wifi': Wi-Fi, Ethernet o conexión no medida
+   */
+  public detectNetworkType(): DetectedNetworkType {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      return 'offline';
+    }
+    const conn = this.getNavigatorConnection();
+    if (!conn) {
+      return 'wifi';
+    }
+    const connType = (conn.type || '').toLowerCase();
+    if (connType === 'none') {
+      return 'offline';
+    }
+    if (
+      connType === 'cellular' ||
+      connType === 'wimax' ||
+      connType === 'bluetooth' ||
+      Boolean(conn.saveData)
+    ) {
+      return 'metered';
+    }
+    return 'wifi';
+  }
+
+  public refreshNetworkInfo(): DetectedNetworkType {
+    const netType = this.detectNetworkType();
+    syncState.update((s) => ({
+      ...s,
+      networkType: netType
+    }));
+    return netType;
+  }
+
+  public getNetworkPolicy(): SyncNetworkPolicy {
+    if (typeof window === 'undefined') return 'wifi_only';
+    const raw = localStorage.getItem(STORAGE_KEYS.SYNC_NETWORK_POLICY);
+    return raw === 'always' ? 'always' : 'wifi_only';
+  }
+
+  public setNetworkPolicy(policy: SyncNetworkPolicy): void {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(STORAGE_KEYS.SYNC_NETWORK_POLICY, policy);
+    }
+    syncState.update((s) => ({
+      ...s,
+      networkPolicy: policy
+    }));
+    if (policy === 'always') {
+      this.tryAutoSync().catch(() => {});
+    }
+  }
+
+  /**
+   * Sincronización automática inteligente:
+   * - Si la red es Wi-Fi (o la preferencia del usuario es 'always'), sincroniza automáticamente.
+   * - Si la red es medida (LTE / 5G) y la preferencia es 'wifi_only', actualiza el contador de pendientes
+   *   para que el ícono del header avise en ámbar y espere confirmación al tocarlo.
+   */
+  public async tryAutoSync(): Promise<{
+    synced: boolean;
+    reason?: 'offline' | 'metered_blocked';
+  }> {
+    const netType = this.refreshNetworkInfo();
+    if (netType === 'offline') {
+      await this.refreshPendingCount('offline');
+      return { synced: false, reason: 'offline' };
+    }
+
+    const policy = this.getNetworkPolicy();
+    if (netType === 'metered' && policy === 'wifi_only') {
+      await this.refreshPendingCount();
+      return { synced: false, reason: 'metered_blocked' };
+    }
+
+    await this.syncNow();
+    return { synced: true };
   }
 
   private hydrateStoredMeta(): void {
     const token = localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
     const lastSyncAt = localStorage.getItem(STORAGE_KEYS.LAST_SYNC_AT);
     const profileRaw = localStorage.getItem(STORAGE_KEYS.USER_PROFILE);
+    const networkPolicy = this.getNetworkPolicy();
+    const networkType = this.detectNetworkType();
     let userEmail: string | null = null;
+    let userFullName: string | null = null;
     try {
-      if (profileRaw) userEmail = JSON.parse(profileRaw).email ?? null;
+      if (profileRaw) {
+        const parsed = JSON.parse(profileRaw);
+        userEmail = parsed.email ?? null;
+        userFullName = parsed.fullName ?? parsed.full_name ?? null;
+      }
     } catch {
       userEmail = null;
+      userFullName = null;
     }
 
     syncState.update((s) => ({
       ...s,
       lastSyncAt,
       isAuthenticated: Boolean(token),
-      userEmail
+      userEmail,
+      userFullName,
+      networkPolicy,
+      networkType
     }));
+  }
+
+  /**
+   * Restaura la sesión desde IndexedDB si localStorage fue limpiado por el sistema operativo
+   * al cerrar y volver a abrir la app.
+   */
+  public async ensureSessionHydrated(): Promise<boolean> {
+    if (typeof window === 'undefined') return false;
+    const existingToken = localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+    if (existingToken) {
+      this.hydrateStoredMeta();
+      return true;
+    }
+
+    try {
+      const persisted = await loadPersistedSession();
+      if (persisted?.token && persisted?.user) {
+        localStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, persisted.token);
+        localStorage.setItem(STORAGE_KEYS.USER_PROFILE, JSON.stringify(persisted.user));
+        this.hydrateStoredMeta();
+        return true;
+      }
+    } catch {
+      // Continuar sin sesión previa
+    }
+    return false;
   }
 
   public getAuthToken(): string | null {
@@ -111,55 +286,108 @@ export class SyncManager {
   public async refreshPendingCount(
     overrideStatus?: SyncStatusState['status']
   ): Promise<number> {
-    const dirty = await getDirtyReviews();
+    const userId = this.getUserId();
+    const [dirtyReviews, dirtyDecks, dirtyLogs] = await Promise.all([
+      getDirtyReviews(),
+      getDirtyUserDecks(),
+      getDirtyStudyLogs(userId)
+    ]);
+    const totalPending = dirtyReviews.length + dirtyDecks.length + dirtyLogs.length;
     syncState.update((s) => ({
       ...s,
-      pendingChanges: dirty.length,
+      pendingChanges: totalPending,
       status: overrideStatus ?? s.status
     }));
-    return dirty.length;
+    return totalPending;
   }
 
   /**
    * Registro o Login contra https://oboeru-api.planner.ar/api/v1/auth/{login|register}
+   * Guarda el usuario en la base de datos del servidor y persiste la sesión localmente
+   * en localStorage + IndexedDB para que nunca tenga que volver a loguearse al reabrir la app.
    */
   public async authenticate(
     mode: 'login' | 'register',
     email: string,
-    password: string
-  ): Promise<{ token: string; user: { id: string; email: string } }> {
+    password: string,
+    fullName: string = ''
+  ): Promise<{ token: string; user: { id: string; fullName: string; email: string } }> {
+    const normalizedEmail = email.trim().toLowerCase();
+    const trimmedName = fullName.trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (mode === 'register' && trimmedName.length < 2) {
+      throw new Error('Ingresá tu nombre (mínimo 2 caracteres).');
+    }
+
+    if (!normalizedEmail || !emailRegex.test(normalizedEmail)) {
+      throw new Error('Ingresá un correo electrónico válido.');
+    }
+
+    if (!password || password.length < 8) {
+      throw new Error('La contraseña debe tener al menos 8 caracteres.');
+    }
+
     const res = await fetch(`${this.baseUrl}/api/v1/auth/${mode}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email.trim().toLowerCase(), password })
+      body: JSON.stringify({
+        fullName: trimmedName,
+        full_name: trimmedName,
+        email: normalizedEmail,
+        password
+      })
     });
 
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      throw new Error(data.error || `Error de autenticación (${res.status})`);
+      if (res.status === 409) {
+        throw new Error('Ya existe una cuenta registrada con este correo electrónico.');
+      }
+      if (res.status === 401) {
+        throw new Error('Correo electrónico o contraseña incorrectos.');
+      }
+      throw new Error(data.error || `No se pudo completar la operación (${res.status}).`);
     }
 
+    const resolvedFullName =
+      data.user?.fullName ||
+      data.user?.full_name ||
+      trimmedName ||
+      normalizedEmail.split('@')[0];
+
+    const userProfile = {
+      id: String(data.user.id),
+      fullName: String(resolvedFullName),
+      email: String(data.user.email || normalizedEmail),
+      createdAt: data.user.createdAt
+    };
+
     localStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, data.token);
-    localStorage.setItem(STORAGE_KEYS.USER_PROFILE, JSON.stringify(data.user));
+    localStorage.setItem(STORAGE_KEYS.USER_PROFILE, JSON.stringify(userProfile));
+    await savePersistedSession({ token: data.token, user: userProfile });
 
     syncState.update((s) => ({
       ...s,
       isAuthenticated: true,
-      userEmail: data.user.email,
+      userEmail: userProfile.email,
+      userFullName: userProfile.fullName,
       errorMessage: null
     }));
 
     await this.syncNow();
-    return data;
+    return { token: data.token, user: userProfile };
   }
 
-  public logout(): void {
+  public async logout(): Promise<void> {
     localStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
     localStorage.removeItem(STORAGE_KEYS.USER_PROFILE);
+    await clearPersistedSession().catch(() => {});
     syncState.update((s) => ({
       ...s,
       isAuthenticated: false,
       userEmail: null,
+      userFullName: null,
       status: 'idle'
     }));
   }
@@ -179,12 +407,20 @@ export class SyncManager {
       return { pushed: 0, pulled: 0, skippedStale: 0 };
     }
 
-    const dirtyBefore = await getDirtyReviews();
+    const userId = this.getUserId();
+    const [dirtyBefore, dirtyDecksBefore, dirtyLogsBefore] = await Promise.all([
+      getDirtyReviews(),
+      getDirtyUserDecks(),
+      getDirtyStudyLogs(userId)
+    ]);
+    const totalPendingBefore =
+      dirtyBefore.length + dirtyDecksBefore.length + dirtyLogsBefore.length;
+
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       syncState.update((s) => ({
         ...s,
         status: 'offline',
-        pendingChanges: dirtyBefore.length,
+        pendingChanges: totalPendingBefore,
         errorMessage: 'Modo Offline activo. Tus repasos están guardados localmente.'
       }));
       return { pushed: 0, pulled: 0, skippedStale: 0 };
@@ -194,7 +430,7 @@ export class SyncManager {
     syncState.update((s) => ({
       ...s,
       status: 'syncing',
-      pendingChanges: dirtyBefore.length,
+      pendingChanges: totalPendingBefore,
       errorMessage: null
     }));
 
@@ -260,48 +496,105 @@ export class SyncManager {
       }
 
       // ======================================================================
-      // PASO 2: PULL Delta del catálogo de vocabulario en lotes de 200
+      // PASO 1.B: PUSH de user_decks personalizados creados/editados localmente
       // ======================================================================
-      let offset = 0;
-      let keepFetchingVocab = true;
+      if (token && dirtyDecksBefore.length > 0) {
+        const deckBatches = chunkBatch(dirtyDecksBefore, MAX_SYNC_BATCH_SIZE);
 
-      while (keepFetchingVocab) {
-        const vocabUrl = new URL(`${this.baseUrl}/api/v1/vocabulary`);
-        vocabUrl.searchParams.set('limit', String(MAX_SYNC_BATCH_SIZE));
-        vocabUrl.searchParams.set('offset', String(offset));
-        if (sinceIso) {
-          vocabUrl.searchParams.set('since', sinceIso);
-        }
+        for (const batch of deckBatches) {
+          const payload = {
+            decks: batch.map((d) => ({
+              id: d.id,
+              name: d.name,
+              description: d.description,
+              vocabulary_ids: d.vocabulary_ids,
+              created_at: d.created_at,
+              updated_at: d.updated_at,
+              deleted_at: d.deleted_at
+            }))
+          };
 
-        const vocabRes = await fetch(vocabUrl.toString(), {
-          method: 'GET',
-          headers: { Accept: 'application/json' }
-        });
+          const pushDecksRes = await fetch(`${this.baseUrl}/api/v1/sync/decks`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`
+            },
+            body: JSON.stringify(payload)
+          });
 
-        if (!vocabRes.ok) break;
+          if (pushDecksRes.ok) {
+            const pushDecksData = await pushDecksRes.json();
+            totalPushed += Number(pushDecksData.syncedCount ?? 0);
+            totalSkippedStale += Number(pushDecksData.skippedStaleCount ?? 0);
+            if (pushDecksData.serverTime) latestServerTime = pushDecksData.serverTime;
 
-        const vocabJson = await vocabRes.json();
-        if (vocabJson.serverTime) latestServerTime = vocabJson.serverTime;
+            if (Array.isArray(pushDecksData.data) && pushDecksData.data.length > 0) {
+              const normalizedServerDecks = pushDecksData.data.map((row: Record<string, unknown>) =>
+                this.normalizeServerDeck(row)
+              );
+              await upsertUserDecksBatchLWW(normalizedServerDecks);
+            }
 
-        const rawItems: Array<Record<string, unknown>> = Array.isArray(vocabJson.data)
-          ? vocabJson.data
-          : [];
-
-        if (rawItems.length > 0) {
-          const normalizedVocab: VocabularyRecord[] = rawItems.map(normalizeVocabularyRecord);
-          await upsertVocabularyBatch(normalizedVocab);
-          totalPulled += normalizedVocab.length;
-        }
-
-        if (rawItems.length < MAX_SYNC_BATCH_SIZE) {
-          keepFetchingVocab = false;
-        } else {
-          offset += MAX_SYNC_BATCH_SIZE;
+            await clearDirtyUserDeckFlags(batch.map((d) => d.id));
+          }
         }
       }
 
       // ======================================================================
-      // PASO 3: PULL Delta de srs_reviews del usuario (con resolución LWW)
+      // PASO 1.C: PUSH de study_logs modificados localmente
+      // ======================================================================
+      if (token && dirtyLogsBefore.length > 0) {
+        const logBatches = chunkBatch(dirtyLogsBefore, MAX_SYNC_BATCH_SIZE);
+
+        for (const batch of logBatches) {
+          const payload = {
+            logs: batch.map((l) => ({
+              date_key: l.date_key,
+              reviews_count: Number(l.reviews_count),
+              updated_at: l.updated_at
+            }))
+          };
+
+          const pushLogsRes = await fetch(`${this.baseUrl}/api/v1/sync/study-logs`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`
+            },
+            body: JSON.stringify(payload)
+          });
+
+          if (pushLogsRes.ok) {
+            const pushLogsData = await pushLogsRes.json();
+            totalPushed += Number(pushLogsData.syncedCount ?? 0);
+            totalSkippedStale += Number(pushLogsData.skippedStaleCount ?? 0);
+            if (pushLogsData.serverTime) latestServerTime = pushLogsData.serverTime;
+
+            if (Array.isArray(pushLogsData.data) && pushLogsData.data.length > 0) {
+              const normalizedServerLogs: StudyLogRecord[] = pushLogsData.data.map(
+                (row: Record<string, unknown>) => ({
+                  id: `${String(row.user_id ?? userId)}::${String(row.date_key)}`,
+                  user_id: String(row.user_id ?? userId),
+                  date_key: String(row.date_key),
+                  reviews_count: Number(row.reviews_count ?? 0),
+                  updated_at: String(row.updated_at ?? new Date().toISOString()),
+                  dirty: false
+                })
+              );
+              await upsertStudyLogsBatchLWW(normalizedServerLogs);
+            }
+
+            await clearDirtyStudyLogFlags(
+              batch.map((l) => l.id || `${l.user_id}::${l.date_key}`)
+            );
+          }
+        }
+      }
+
+      // ======================================================================
+      // PASO 2: PULL Delta de srs_reviews y palabras elegidas por el usuario
+      // (Solo se guardan localmente las palabras elegidas por el usuario)
       // ======================================================================
       if (token) {
         const pullUrl = new URL(`${this.baseUrl}/api/v1/sync/reviews`);
@@ -348,16 +641,119 @@ export class SyncManager {
             totalSkippedStale += skippedStale;
           }
         }
+
+        // PULL Delta de mazos personalizados del usuario (/api/v1/sync/decks)
+        const pullDecksUrl = new URL(`${this.baseUrl}/api/v1/sync/decks`);
+        if (sinceIso) {
+          pullDecksUrl.searchParams.set('since', sinceIso);
+        }
+
+        const pullDecksRes = await fetch(pullDecksUrl.toString(), {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${token}`
+          }
+        });
+
+        if (pullDecksRes.ok) {
+          const pullDecksJson = await pullDecksRes.json();
+          if (pullDecksJson.serverTime) latestServerTime = pullDecksJson.serverTime;
+
+          const deckRows: Array<Record<string, unknown>> = Array.isArray(pullDecksJson.data)
+            ? pullDecksJson.data
+            : [];
+
+          const incomingDecks: UserDeckRecord[] = deckRows.map((row) =>
+            this.normalizeServerDeck(row)
+          );
+
+          for (const deckBatch of chunkBatch(incomingDecks, MAX_SYNC_BATCH_SIZE)) {
+            const { applied, skippedStale } = await upsertUserDecksBatchLWW(deckBatch);
+            totalPulled += applied;
+            totalSkippedStale += skippedStale;
+          }
+
+          // Asegurar que las palabras elegidas dentro de los mazos del usuario estén guardadas localmente
+          const localVocab = await getAllVocabulary();
+          const localIds = new Set(localVocab.map((v) => v.id));
+          const missingIds: string[] = [];
+          for (const deck of incomingDecks) {
+            if (deck.deleted_at) continue;
+            for (const vid of deck.vocabulary_ids) {
+              if (!localIds.has(vid)) {
+                localIds.add(vid);
+                missingIds.push(vid);
+              }
+            }
+          }
+
+          for (const idBatch of chunkBatch(missingIds, 100)) {
+            const vocabByIdsUrl = new URL(`${this.baseUrl}/api/v1/vocabulary`);
+            vocabByIdsUrl.searchParams.set('ids', idBatch.join(','));
+            vocabByIdsUrl.searchParams.set('limit', String(idBatch.length));
+            const res = await fetch(vocabByIdsUrl.toString(), {
+              headers: { Accept: 'application/json' }
+            });
+            if (res.ok) {
+              const json = await res.json();
+              const fetched: VocabularyRecord[] = Array.isArray(json.data)
+                ? json.data.map(normalizeVocabularyRecord)
+                : [];
+              if (fetched.length > 0) {
+                await upsertVocabularyBatch(fetched);
+              }
+            }
+          }
+        }
+
+        // PULL Delta de study_logs del usuario (/api/v1/sync/study-logs)
+        const pullLogsUrl = new URL(`${this.baseUrl}/api/v1/sync/study-logs`);
+        if (sinceIso) {
+          pullLogsUrl.searchParams.set('since', sinceIso);
+        }
+
+        const pullLogsRes = await fetch(pullLogsUrl.toString(), {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${token}`
+          }
+        });
+
+        if (pullLogsRes.ok) {
+          const pullLogsJson = await pullLogsRes.json();
+          if (pullLogsJson.serverTime) latestServerTime = pullLogsJson.serverTime;
+
+          const logRows: Array<Record<string, unknown>> = Array.isArray(pullLogsJson.data)
+            ? pullLogsJson.data
+            : [];
+
+          const incomingLogs: StudyLogRecord[] = logRows.map((row) => ({
+            id: `${String(row.user_id ?? userId)}::${String(row.date_key)}`,
+            user_id: String(row.user_id ?? userId),
+            date_key: String(row.date_key),
+            reviews_count: Number(row.reviews_count ?? 0),
+            updated_at: String(row.updated_at ?? new Date().toISOString()),
+            dirty: false
+          }));
+
+          for (const logBatch of chunkBatch(incomingLogs, MAX_SYNC_BATCH_SIZE)) {
+            const { applied, skippedStale } = await upsertStudyLogsBatchLWW(logBatch);
+            totalPulled += applied;
+            totalSkippedStale += skippedStale;
+          }
+        }
       }
 
       localStorage.setItem(STORAGE_KEYS.LAST_SYNC_AT, latestServerTime);
-      const remainingDirty = await getDirtyReviews();
+      const remainingPending = await this.refreshPendingCount('success');
 
       syncState.update((s) => ({
         ...s,
         status: 'success',
         lastSyncAt: latestServerTime,
-        pendingChanges: remainingDirty.length,
+        pendingChanges: remainingPending,
         pushedCount: totalPushed,
         pulledCount: totalPulled,
         skippedLwwStale: totalSkippedStale,
@@ -371,16 +767,113 @@ export class SyncManager {
       };
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'No se pudo conectar con oboeru-api';
-      const remainingDirty = await getDirtyReviews();
+      const remainingPending = await this.refreshPendingCount('offline');
       syncState.update((s) => ({
         ...s,
         status: 'offline',
-        pendingChanges: remainingDirty.length,
+        pendingChanges: remainingPending,
         errorMessage: msg
       }));
       return { pushed: totalPushed, pulled: totalPulled, skippedStale: totalSkippedStale };
     } finally {
       this.isRunning = false;
+    }
+  }
+
+  private normalizeServerDeck(row: Record<string, unknown>): UserDeckRecord {
+    const rawVocabIds = row.vocabulary_ids ?? row.vocabularyIds;
+    let parsedVocabIds: string[] = [];
+    if (Array.isArray(rawVocabIds)) {
+      parsedVocabIds = rawVocabIds.map(String);
+    } else if (typeof rawVocabIds === 'string') {
+      try {
+        const parsed = JSON.parse(rawVocabIds);
+        if (Array.isArray(parsed)) parsedVocabIds = parsed.map(String);
+      } catch {
+        parsedVocabIds = [];
+      }
+    }
+
+    return {
+      id: String(row.id ?? crypto.randomUUID()),
+      user_id: String(row.user_id ?? row.userId ?? this.getUserId()),
+      name: String(row.name ?? 'Mazo personalizado'),
+      description:
+        row.description != null && String(row.description).trim() !== ''
+          ? String(row.description)
+          : null,
+      vocabulary_ids: parsedVocabIds,
+      created_at: String(row.created_at ?? row.createdAt ?? new Date().toISOString()),
+      updated_at: String(row.updated_at ?? row.updatedAt ?? new Date().toISOString()),
+      deleted_at:
+        row.deleted_at != null || row.deletedAt != null
+          ? String(row.deleted_at ?? row.deletedAt)
+          : null,
+      dirty: false
+    };
+  }
+
+  /**
+   * Consulta directamente el catálogo completo (N5 a N1) en la base de datos del servidor
+   * sin descargar todas las palabras al teléfono; solo las que el usuario elija se guardan localmente.
+   */
+  public async searchRemoteVocabulary(
+    rawQuery: string,
+    jlptFilter: number | null = null,
+    limit: number = 80
+  ): Promise<Array<VocabularyRecord & { inStudy: boolean; state: string }>> {
+    const trimmed = rawQuery.trim();
+    const converted = convertSearchQueryToKana(trimmed);
+
+    try {
+      const url = new URL(`${this.baseUrl}/api/v1/vocabulary`);
+      url.searchParams.set('limit', String(limit));
+      if (trimmed) {
+        url.searchParams.set('q', trimmed);
+        if (converted.hiragana && converted.hiragana !== trimmed) {
+          url.searchParams.set('kana', converted.hiragana);
+        }
+      }
+      if (jlptFilter !== null) {
+        url.searchParams.set('jlpt', String(jlptFilter));
+      }
+
+      const res = await fetch(url.toString(), {
+        method: 'GET',
+        headers: { Accept: 'application/json' }
+      });
+
+      if (!res.ok) {
+        return searchLocalVocabulary(rawQuery, jlptFilter);
+      }
+
+      const json = await res.json();
+      const rawItems: Array<Record<string, unknown>> = Array.isArray(json.data) ? json.data : [];
+      const reviews = await getAllReviews();
+      const reviewMap = new Map<string, SrsReviewRecord>();
+      for (const r of reviews) {
+        reviewMap.set(r.vocabulary_id, r);
+      }
+
+      // Deduplicar resultados del servidor por (kanji + lectura)
+      const deduped = new Map<string, VocabularyRecord & { inStudy: boolean; state: string }>();
+      for (const raw of rawItems) {
+        const v = normalizeVocabularyRecord(raw);
+        const key = `${v.kanji || ''}::${v.reading}`;
+        if (deduped.has(key)) continue;
+
+        const rev = reviewMap.get(v.id);
+        const active = Boolean(rev && rev.state !== 'deleted' && !rev.deleted_at);
+        deduped.set(key, {
+          ...v,
+          inStudy: active,
+          state: rev?.state || 'new'
+        });
+      }
+
+      return Array.from(deduped.values());
+    } catch {
+      return searchLocalVocabulary(rawQuery, jlptFilter);
     }
   }
 

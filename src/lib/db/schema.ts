@@ -37,6 +37,27 @@ export interface StudyCardItem extends VocabularyRecord {
   review: SrsReviewRecord;
 }
 
+export interface UserDeckRecord {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  vocabulary_ids: string[];
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  dirty?: boolean;
+}
+
+export interface StudyLogRecord {
+  id?: string;
+  user_id: string;
+  date_key: string;
+  reviews_count: number;
+  updated_at: string;
+  dirty?: boolean;
+}
+
 export interface DeckSummary {
   id: string;
   title: string;
@@ -47,6 +68,8 @@ export interface DeckSummary {
   newCards: number;
   masteredCards: number;
   accentVariant: 'mint' | 'olive' | 'slate' | 'emerald';
+  createdAt: string;
+  isCustom?: boolean;
   filterFn?: (vocab: VocabularyRecord) => boolean;
 }
 
@@ -54,7 +77,7 @@ export interface DeckSummary {
  * Definición declarativa compatible con WatermelonDB (appSchema / tableSchema)
  */
 export const WATERMELON_SCHEMA_CONFIG = {
-  version: 3,
+  version: 4,
   tables: {
     vocabulary: {
       name: 'vocabulary',
@@ -79,6 +102,19 @@ export const WATERMELON_SCHEMA_CONFIG = {
         { name: 'interval_days', type: 'number' },
         { name: 'next_review_date', type: 'string', isIndexed: true },
         { name: 'lapses', type: 'number' },
+        { name: 'updated_at', type: 'string', isIndexed: true },
+        { name: 'deleted_at', type: 'string', isOptional: true },
+        { name: 'dirty', type: 'boolean', isOptional: true }
+      ]
+    },
+    user_decks: {
+      name: 'user_decks',
+      columns: [
+        { name: 'user_id', type: 'string', isIndexed: true },
+        { name: 'name', type: 'string' },
+        { name: 'description', type: 'string', isOptional: true },
+        { name: 'vocabulary_ids', type: 'string' },
+        { name: 'created_at', type: 'string' },
         { name: 'updated_at', type: 'string', isIndexed: true },
         { name: 'deleted_at', type: 'string', isOptional: true },
         { name: 'dirty', type: 'boolean', isOptional: true }
@@ -131,5 +167,19 @@ CREATE TABLE IF NOT EXISTS study_log (
   reviews_count INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS user_decks (
+  id TEXT PRIMARY KEY NOT NULL,
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT NULL,
+  vocabulary_ids TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT NULL,
+  dirty INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_decks_user_updated_at ON user_decks (user_id, updated_at);
 `;
 

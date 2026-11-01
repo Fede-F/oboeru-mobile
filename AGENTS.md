@@ -124,3 +124,13 @@ Para lanzar una actualización instantánea Over-The-Air que llegue a todos los 
    git push origin main
    ```
 4. **Eso es todo:** GitHub Actions compilará automáticamente el proyecto, creará `dist.zip` y publicará el GitHub Release con el tag `v<version>`. El Cloudflare Worker multi-tenant detectará el nuevo release y los usuarios recibirán la actualización en segundo plano.
+
+---
+
+## 🧪 6. Usuario de Prueba para Desarrollo y Testing Automatizado
+
+Para cualquier prueba de login, creación de mazos o sincronización contra el backend (`https://oboeru-api.planner.ar`), **utiliza siempre el usuario de prueba documentado en [`TEST_USER.md`](./TEST_USER.md)**:
+- **Nombre y apellido:** `Usuario de Prueba`
+- **Email:** `test@oboeru.app`
+- **Contraseña:** `OboeruTest2026!`
+

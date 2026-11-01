@@ -44,26 +44,26 @@
   }
 </script>
 
-<section class="rounded-3xl bg-[#121820] border border-white/10 p-4 shadow-xl">
+<section class="rounded-[26px] bg-[#161b20] p-4 shadow-lg">
   <!-- Header del Heatmap -->
   <div class="flex items-center justify-between mb-3">
     <div>
       <div class="flex items-center gap-2">
-        <span class="w-2 h-2 rounded-full bg-[#a7f3d0]"></span>
-        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-200">
+        <span class="w-2 h-2 rounded-full bg-white"></span>
+        <h3 class="text-xs font-bold uppercase tracking-wider text-white">
           Consistencia de Estudio
         </h3>
       </div>
-      <p class="text-[11px] text-slate-400 mt-0.5">
+      <p class="text-[11px] text-white/60 mt-0.5">
         {totalReviews} repasos en las últimas 12 semanas
       </p>
     </div>
 
     <div class="flex items-center gap-2">
-      <div class="px-2.5 py-1 rounded-full bg-[#1b2622] border border-[#a7f3d0]/25 text-[11px] font-semibold text-[#a7f3d0]">
+      <div class="px-2.5 py-1 rounded-full bg-white/10 text-[11px] font-semibold text-white">
         🔥 {currentStreak}d racha
       </div>
-      <div class="px-2.5 py-1 rounded-full bg-slate-800/90 border border-white/10 text-[11px] font-medium text-slate-300">
+      <div class="px-2.5 py-1 rounded-full bg-white/10 text-[11px] font-medium text-white/80">
         Hoy: <strong class="text-white">{todayCount}</strong>
       </div>
     </div>
@@ -94,7 +94,7 @@
         📅 <strong class="text-[#a7f3d0]">{selectedCell.dateKey}</strong>: {selectedCell.count} tarjetas estudiadas
       </span>
     {:else}
-      <span>Tocá un día para ver el detalle offline</span>
+      <span>Tocá cualquier día para ver tu actividad</span>
     {/if}
 
     <div class="flex items-center gap-1">

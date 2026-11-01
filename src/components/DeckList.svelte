@@ -2,7 +2,7 @@
   import type { DeckSummary } from '../lib/db/schema';
   import type { HeatmapDayCell } from '../lib/db/database';
   import StudyHeatmap from './StudyHeatmap.svelte';
-  import { hapticImpactLight } from '../lib/haptics.js';
+  import { hapticImpactLight, hapticSelection } from '../lib/haptics.js';
 
   interface Props {
     decks: DeckSummary[];
@@ -12,6 +12,7 @@
     todayCount: number;
     onSelectDeck: (deck: DeckSummary) => void;
     onOpenSearch: () => void;
+    onOpenCreateDeck: () => void;
   }
 
   let {
@@ -21,145 +22,302 @@
     currentStreak = 0,
     todayCount = 0,
     onSelectDeck,
-    onOpenSearch
+    onOpenSearch,
+    onOpenCreateDeck
   }: Props = $props();
 
-  function getDeckCardStyle(variant: DeckSummary['accentVariant'], index: number): string {
-    // Diseño asimétrico/escalonado (staggered) con tonos grises y verdes mate
-    const staggerOffset = index % 2 === 1 ? 'mt-5' : 'mt-0';
+  type SortCriterion = 'created' | 'name' | 'due' | 'size';
+  type OwnershipFilter = 'all' | 'mine';
+
+  let sortBy = $state<SortCriterion>('created');
+  let sortDirection = $state<'asc' | 'desc'>('desc');
+  let ownershipFilter = $state<OwnershipFilter>('all');
+
+  const sortOptions: Array<{ id: SortCriterion; label: string }> = [
+    { id: 'created', label: 'Fecha' },
+    { id: 'name', label: 'Nombre' },
+    { id: 'due', label: 'Para hoy' },
+    { id: 'size', label: 'Cantidad' }
+  ];
+
+  let customDeckCount = $derived(decks.filter((d) => d.isCustom).length);
+
+  let sortedDecks = $derived.by(() => {
+    const filtered =
+      ownershipFilter === 'mine' ? decks.filter((d) => Boolean(d.isCustom)) : [...decks];
+    const dir = sortDirection === 'asc' ? 1 : -1;
+
+    filtered.sort((a, b) => {
+      switch (sortBy) {
+        case 'name':
+          return a.title.localeCompare(b.title, 'es', { sensitivity: 'base' }) * dir;
+        case 'due':
+          return (a.dueCards - b.dueCards) * dir;
+        case 'size':
+          return (a.totalCards - b.totalCards) * dir;
+        case 'created':
+        default: {
+          const tA = new Date(a.createdAt || 0).getTime();
+          const tB = new Date(b.createdAt || 0).getTime();
+          return (tA - tB) * dir;
+        }
+      }
+    });
+
+    return filtered;
+  });
+
+  function formatDeckCreatedDate(isoDate?: string): string {
+    if (!isoDate) return '';
+    const d = new Date(isoDate);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('es-AR', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+  }
+
+  function getDeckCardStyle(variant: DeckSummary['accentVariant']): string {
     switch (variant) {
       case 'mint':
-        return `${staggerOffset} bg-gradient-to-br from-[#2b3a33] via-[#1f2a25] to-[#141c18] border-[#a7f3d0]/25`;
+        // Salvia grisáceo mate (como la card "Noun" de la referencia)
+        return 'bg-[#3e534a]';
       case 'olive':
-        return `${staggerOffset} bg-gradient-to-br from-[#35423b] via-[#26302b] to-[#171e1b] border-white/10`;
+        // Oliva bosque profundo mate (como la card "Adjective" de la referencia)
+        return 'bg-[#283924]';
       case 'emerald':
-        return `${staggerOffset} bg-gradient-to-br from-[#23312d] via-[#1a2422] to-[#121817] border-[#a7f3d0]/15`;
+        // Carbón verdoso oscuro mate
+        return 'bg-[#1f2926]';
       default:
-        return `${staggerOffset} bg-gradient-to-br from-[#1e2631] via-[#171d26] to-[#10151c] border-white/10`;
+        // Carbón pizarra oscuro mate (como las cards "Verbs one / Verbs two" de la referencia)
+        return 'bg-[#171c20]';
     }
+  }
+
+  async function handleSortChange(criterion: SortCriterion) {
+    await hapticSelection();
+    if (sortBy === criterion) {
+      sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+    } else {
+      sortBy = criterion;
+      // Por defecto: Nombre ascendente (A->Z), y el resto descendente (más reciente / más urgentes primero)
+      sortDirection = criterion === 'name' ? 'asc' : 'desc';
+    }
+  }
+
+  async function handleOwnershipFilter(filter: OwnershipFilter) {
+    if (ownershipFilter === filter) return;
+    await hapticSelection();
+    ownershipFilter = filter;
   }
 
   async function handleSelect(deck: DeckSummary) {
     await hapticImpactLight();
     onSelectDeck(deck);
   }
+
+  async function handleCreateNew() {
+    await hapticImpactLight();
+    onOpenCreateDeck();
+  }
 </script>
 
 <div class="space-y-5">
-  <!-- Banner Superior de Resumen SRS & Acceso Rápido al Buscador WanaKana -->
-  <section class="rounded-3xl bg-gradient-to-br from-[#1c2623] via-[#151d1b] to-[#0f1419] border border-white/10 p-5 relative overflow-hidden">
+  <!-- Banner Superior de Resumen y Acción Rápida para Crear Mazo -->
+  <section class="rounded-[26px] bg-[#161b20] p-5 relative overflow-hidden">
     <div class="flex items-start justify-between gap-3">
       <div>
-        <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#a7f3d0]/10 border border-[#a7f3d0]/30 text-[#a7f3d0] text-[10px] font-bold tracking-wider uppercase">
-          覚える • Repetición Espaciada
+        <span class="inline-flex items-center gap-1.5 text-white/60 text-[10px] font-bold tracking-wider uppercase">
+          覚える • Práctica Diaria
         </span>
-        <h2 class="text-xl font-bold text-white tracking-tight mt-2">
+        <h2 class="text-2xl font-extrabold text-white tracking-tight mt-1">
           Tus Mazos de Estudio
         </h2>
-        <p class="text-xs text-slate-400 mt-1 leading-relaxed">
-          Seleccioná un mazo para iniciar tu sesión SRS offline-first o explorá el diccionario con conversión Romaji → Kana.
+        <p class="text-xs text-white/60 mt-1 leading-relaxed">
+          Elegí un mazo para empezar tu práctica de hoy o creá uno nuevo con tus propias palabras.
         </p>
       </div>
 
       <button
         type="button"
-        onclick={onOpenSearch}
-        aria-label="Buscar vocabulario en japonés"
-        class="touch-target shrink-0 px-3.5 py-2.5 rounded-2xl bg-[#171717] hover:bg-neutral-800 border border-white/10 text-[#a7f3d0] text-xs font-semibold active-press flex items-center gap-1.5"
+        onclick={handleCreateNew}
+        aria-label="Crear nuevo mazo de estudio"
+        class="touch-target shrink-0 px-3.5 py-2.5 rounded-2xl bg-white/10 hover:bg-white/15 text-white text-xs font-bold active-press flex items-center gap-1.5"
       >
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
         </svg>
-        <span>あ/A</span>
+        <span>Crear mazo</span>
       </button>
     </div>
   </section>
 
-  <!-- Lista de Mazos con Diseño Asimétrico / Escalonado (Staggered Layout) -->
-  <section aria-label="Mazos de estudio">
-    <div class="flex items-center justify-between mb-3 px-1">
-      <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300">
-        Mazos Disponibles (Staggered Decks)
-      </h3>
-      <span class="text-[11px] text-[#a7f3d0] font-medium">
-        Offline-First SQLite/IDB
-      </span>
+  <!-- Lista de Mazos Alineados en Grilla de 2 Columnas con Ordenamiento y Scroll -->
+  <section aria-label="Mazos de estudio" class="space-y-3">
+    <div class="flex flex-col gap-2.5 px-1">
+      <div class="flex items-center justify-between gap-2">
+        <div>
+          <h3 class="text-xs font-bold uppercase tracking-wider text-white/80">
+            Mazos Disponibles ({sortedDecks.length})
+          </h3>
+          <span class="text-[10px] text-white/50">
+            Tocá el criterio para invertir orden
+          </span>
+        </div>
+
+        <!-- Filtro de Autoría: Todos vs Míos -->
+        <div
+          role="group"
+          aria-label="Filtrar mazos por autor"
+          class="inline-flex items-center p-0.5 rounded-full bg-[#161b20] shrink-0"
+        >
+          <button
+            type="button"
+            onclick={() => handleOwnershipFilter('all')}
+            aria-pressed={ownershipFilter === 'all'}
+            class="px-3 py-1 rounded-full text-[11px] font-bold transition-all active-press {ownershipFilter === 'all'
+              ? 'bg-white text-slate-950 shadow-sm'
+              : 'text-white/60 hover:text-white'}"
+          >
+            Todos ({decks.length})
+          </button>
+          <button
+            type="button"
+            onclick={() => handleOwnershipFilter('mine')}
+            aria-pressed={ownershipFilter === 'mine'}
+            class="px-3 py-1 rounded-full text-[11px] font-bold transition-all active-press {ownershipFilter === 'mine'
+              ? 'bg-white text-slate-950 shadow-sm'
+              : 'text-white/60 hover:text-white'}"
+          >
+            Míos ({customDeckCount})
+          </button>
+        </div>
+      </div>
+
+      <!-- Barra de Ordenamiento: Fecha, Nombre, Para hoy (urgencia) y Cantidad -->
+      <div class="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+        {#each sortOptions as opt (opt.id)}
+          {@const active = sortBy === opt.id}
+          <button
+            type="button"
+            onclick={() => handleSortChange(opt.id)}
+            class="px-3 py-1.5 rounded-full text-[11px] font-bold transition-colors active-press flex items-center gap-1 shrink-0 {active
+              ? 'bg-white text-slate-950'
+              : 'bg-[#161b20] text-white/70 hover:text-white'}"
+          >
+            <span>{opt.label}</span>
+            {#if active}
+              <span class="text-[10px] font-extrabold">
+                {sortDirection === 'asc' ? '↑' : '↓'}
+              </span>
+            {/if}
+          </button>
+        {/each}
+      </div>
     </div>
 
-    <div class="grid grid-cols-2 gap-3.5 items-start">
-      {#each decks.slice(0, 4) as deck, idx (deck.id)}
+    <div class="max-h-[416px] overflow-y-auto pr-1 grid grid-cols-2 gap-3.5 items-stretch">
+      {#each sortedDecks as deck (deck.id)}
         <button
           type="button"
           onclick={() => handleSelect(deck)}
-          class="w-full text-left rounded-3xl p-4 border shadow-xl active-press transition-all flex flex-col justify-between {idx === 0 ? 'min-h-[188px]' : idx === 1 ? 'min-h-[172px]' : idx === 2 ? 'min-h-[168px]' : 'min-h-[184px]'} {getDeckCardStyle(deck.accentVariant, idx)}"
+          class="w-full h-[196px] text-left rounded-[26px] p-4 shadow-lg active-press transition-all flex flex-col justify-between {getDeckCardStyle(deck.accentVariant)}"
         >
-          <div>
-            <!-- Chip Superior -->
-            <div class="flex items-center justify-between gap-2">
-              <span class="px-2.5 py-0.5 rounded-full bg-black/35 border border-white/10 text-[10px] font-bold text-[#a7f3d0] tracking-wide">
-                {deck.badge}
-              </span>
-              <span class="w-2 h-2 rounded-full bg-[#a7f3d0]/80"></span>
+          <!-- Cabecera: Nombre del mazo + Fecha chiquita + Tres puntos sutiles -->
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <h4 class="text-sm font-bold text-white leading-tight line-clamp-1">
+                {deck.title}
+              </h4>
+              {#if deck.createdAt}
+                <span class="block text-[10px] text-white/60 mt-0.5 font-medium">
+                  {formatDeckCreatedDate(deck.createdAt)}
+                </span>
+              {/if}
             </div>
-
-            <!-- Título y Descripción -->
-            <h4 class="text-base font-bold text-white mt-3 leading-snug">
-              {deck.title}
-            </h4>
-            <p class="text-[11px] text-slate-300/80 mt-1 line-clamp-2 leading-relaxed">
-              {deck.subtitle}
-            </p>
+            <span class="text-white/50 text-xs font-bold tracking-widest leading-none pt-0.5 select-none">
+              •••
+            </span>
           </div>
 
-          <!-- Métricas Inferiores del Mazo -->
-          <div class="mt-4 pt-3 border-t border-white/10 flex items-end justify-between">
+          <!-- Cuerpo Central: Total de Palabras y Para Hoy con tipografía blanca limpia -->
+          <div class="space-y-1.5 my-1">
             <div>
-              <span class="text-[10px] uppercase tracking-wider text-slate-400 block">
-                Para hoy
+              <span class="text-2xl font-extrabold text-white leading-none block">
+                {deck.totalCards}
               </span>
-              <span class="text-lg font-extrabold text-[#a7f3d0] leading-none">
-                {deck.dueCards}
+              <span class="text-[10px] text-white/60 font-medium block mt-0.5">
+                Palabras
               </span>
-              <span class="text-[10px] text-slate-400 ml-0.5">/ {deck.totalCards}</span>
             </div>
 
-            <div class="w-8 h-8 rounded-xl bg-black/30 border border-white/10 flex items-center justify-center text-slate-200">
-              <svg class="w-4 h-4 text-[#a7f3d0]" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+            <div>
+              <span class="text-lg font-extrabold text-white leading-none block">
+                {deck.dueCards}
+              </span>
+              <span class="text-[10px] text-white/60 font-medium block mt-0.5">
+                Para hoy
+              </span>
+            </div>
+          </div>
+
+          <!-- Pie del Mazo: Etiqueta JP | ES y botón circular mate -->
+          <div class="flex items-center justify-between pt-1">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-white/55 truncate">
+              {deck.isCustom ? 'JP | MÍO' : 'JP | ES'}
+            </span>
+
+            <div class="w-7 h-7 rounded-full bg-white/15 flex items-center justify-center text-white">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
               </svg>
             </div>
           </div>
         </button>
       {/each}
-    </div>
 
-    <!-- Tarjeta Asimétrica Ancha de Inmersión Total (5to mazo destacado) -->
-    {#if decks[4]}
-      {@const fullDeck = decks[4]}
+      <!-- Último elemento del listado: Crear un nuevo mazo personalizado -->
       <button
         type="button"
-        onclick={() => handleSelect(fullDeck)}
-        class="mt-3.5 w-full text-left rounded-3xl p-4 bg-gradient-to-r from-[#283630] via-[#1c2622] to-[#141a22] border border-white/10 shadow-xl active-press flex items-center justify-between gap-4"
+        onclick={handleCreateNew}
+        class="w-full h-[196px] text-left rounded-[26px] p-4 bg-[#171c20] hover:bg-[#1e252a] shadow-lg active-press transition-all flex flex-col justify-between group"
       >
-        <div class="space-y-1">
-          <div class="inline-flex items-center gap-2">
-            <span class="px-2 py-0.5 rounded-full bg-[#a7f3d0]/15 text-[#a7f3d0] text-[10px] font-bold">
-              {fullDeck.badge}
-            </span>
-            <span class="text-[11px] text-amber-300/90 font-medium">
-              {fullDeck.newCards} nuevas • {fullDeck.masteredCards} aprendidas
+        <div class="flex items-start justify-between">
+          <div>
+            <h4 class="text-sm font-bold text-white leading-tight">
+              Crear mazo
+            </h4>
+            <span class="block text-[10px] text-white/60 mt-0.5 font-medium">
+              Personalizado
             </span>
           </div>
-          <h4 class="text-sm font-bold text-white">{fullDeck.title}</h4>
-          <p class="text-[11px] text-slate-300/80">{fullDeck.subtitle}</p>
+          <span class="text-white/50 text-xs font-bold tracking-widest leading-none pt-0.5">
+            •••
+          </span>
         </div>
 
-        <div class="shrink-0 px-3.5 py-2 rounded-2xl bg-[#171717] border border-white/10 text-center">
-          <span class="block text-sm font-extrabold text-[#a7f3d0]">{fullDeck.dueCards}</span>
-          <span class="block text-[9px] uppercase tracking-wider text-slate-400">Tarjetas</span>
+        <div class="my-1">
+          <span class="text-2xl font-extrabold text-white leading-none block">
+            + Nuevo
+          </span>
+          <p class="text-[11px] text-white/60 mt-1 leading-snug">
+            Elegí tus propias palabras del diccionario
+          </p>
+        </div>
+
+        <div class="flex items-center justify-between pt-1">
+          <span class="text-[10px] font-bold uppercase tracking-wider text-white/55">
+            JP | MÍO
+          </span>
+          <div class="w-7 h-7 rounded-full bg-white/15 flex items-center justify-center text-white">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+          </div>
         </div>
       </button>
-    {/if}
+    </div>
   </section>
 
   <!-- Mapa de Calor (Heatmap) estilo GitHub -->
@@ -170,4 +328,3 @@
     {todayCount}
   />
 </div>
-

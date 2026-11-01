@@ -3,6 +3,8 @@ import type {
   ReviewRating,
   SrsReviewRecord,
   StudyCardItem,
+  StudyLogRecord,
+  UserDeckRecord,
   VocabularyRecord
 } from './schema';
 import { INITIAL_VOCABULARY_SEED } from './seedVocabulary';
@@ -10,7 +12,7 @@ import { calculateNextReview } from '../srs/sm2';
 import { convertSearchQueryToKana, stripRubyTags, toRomajiText } from '../utils/japanese';
 
 const DB_NAME = 'oboeru_offline_db';
-const DB_VERSION = 2;
+const DB_VERSION = 5;
 
 export const LOCAL_DEFAULT_USER_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -22,7 +24,7 @@ function openLocalDb(): Promise<IDBDatabase> {
   dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
 
-    req.onupgradeneeded = () => {
+    req.onupgradeneeded = (event) => {
       const db = req.result;
 
       // 1. Tabla vocabulary
@@ -42,9 +44,34 @@ function openLocalDb(): Promise<IDBDatabase> {
         reviewStore.createIndex('updated_at', 'updated_at', { unique: false });
       }
 
-      // 3. Tabla study_log (para el Mapa de Calor estilo GitHub)
-      if (!db.objectStoreNames.contains('study_log')) {
-        db.createObjectStore('study_log', { keyPath: 'date_key' });
+      // 3. Tabla study_log (para el Mapa de Calor con clave compuesta user_id::date_key)
+      if (db.objectStoreNames.contains('study_log')) {
+        // En version 5 migramos a clave compuesta [user_id, date_key] o store nuevo
+        // Si venía de versión previa con keyPath date_key, lo recreamos limpiando datos falsos
+        if (event.oldVersion < 5) {
+          db.deleteObjectStore('study_log');
+          const logStore = db.createObjectStore('study_log', { keyPath: 'id' });
+          logStore.createIndex('user_id', 'user_id', { unique: false });
+          logStore.createIndex('user_date', ['user_id', 'date_key'], { unique: true });
+          logStore.createIndex('updated_at', 'updated_at', { unique: false });
+        }
+      } else {
+        const logStore = db.createObjectStore('study_log', { keyPath: 'id' });
+        logStore.createIndex('user_id', 'user_id', { unique: false });
+        logStore.createIndex('user_date', ['user_id', 'date_key'], { unique: true });
+        logStore.createIndex('updated_at', 'updated_at', { unique: false });
+      }
+
+      // 4. Tabla user_decks (Mazos personalizados creados por el usuario)
+      if (!db.objectStoreNames.contains('user_decks')) {
+        const deckStore = db.createObjectStore('user_decks', { keyPath: 'id' });
+        deckStore.createIndex('user_id', 'user_id', { unique: false });
+        deckStore.createIndex('updated_at', 'updated_at', { unique: false });
+      }
+
+      // 5. Tabla user_session (Persistencia de sesión activa para que no se pierda al cerrar la app)
+      if (!db.objectStoreNames.contains('user_session')) {
+        db.createObjectStore('user_session', { keyPath: 'key' });
       }
     };
 
@@ -62,23 +89,65 @@ function formatDateKey(d: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+export interface PersistedAuthSession {
+  token: string;
+  user: {
+    id: string;
+    fullName: string;
+    email: string;
+    createdAt?: string;
+  };
+}
+
+export async function savePersistedSession(session: PersistedAuthSession): Promise<void> {
+  const db = await openLocalDb();
+  const tx = db.transaction('user_session', 'readwrite');
+  tx.objectStore('user_session').put({
+    key: 'active_session',
+    ...session,
+    updated_at: new Date().toISOString()
+  });
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function loadPersistedSession(): Promise<PersistedAuthSession | null> {
+  const db = await openLocalDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('user_session', 'readonly');
+    const req = tx.objectStore('user_session').get('active_session');
+    req.onsuccess = () => {
+      const res = req.result;
+      if (res && res.token && res.user?.id) {
+        resolve({ token: res.token, user: res.user });
+      } else {
+        resolve(null);
+      }
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function clearPersistedSession(): Promise<void> {
+  const db = await openLocalDb();
+  const tx = db.transaction('user_session', 'readwrite');
+  tx.objectStore('user_session').delete('active_session');
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 /**
  * Inicializa la base de datos local y siembra el diccionario JLPT + actividad inicial offline
  */
 export async function initLocalDatabase(userId: string = LOCAL_DEFAULT_USER_ID): Promise<void> {
   const db = await openLocalDb();
 
-  // Sembrar vocabulario inicial si está vacío
-  const vocabCount = await new Promise<number>((resolve, reject) => {
-    const tx = db.transaction('vocabulary', 'readonly');
-    const req = tx.objectStore('vocabulary').count();
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-
-  if (vocabCount === 0) {
-    await upsertVocabularyBatch(INITIAL_VOCABULARY_SEED);
-  }
+  // Sembrar o completar vocabulario base deduplicado por (kanji limpio + lectura)
+  await upsertVocabularyBatch(INITIAL_VOCABULARY_SEED);
 
   // Sembrar tarjetas SRS iniciales listas para estudio inmediato offline
   const reviewCount = await new Promise<number>((resolve, reject) => {
@@ -116,57 +185,103 @@ export async function initLocalDatabase(userId: string = LOCAL_DEFAULT_USER_ID):
     });
   }
 
-  // Sembrar historial base de estudio para el Heatmap estilo GitHub si está vacío
-  const logCount = await new Promise<number>((resolve, reject) => {
-    const tx = db.transaction('study_log', 'readonly');
-    const req = tx.objectStore('study_log').count();
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  // Inicialización limpia: NO se siembran repasos ni datos inventados en study_log.
+  // Si el usuario no estudió, sus días están en 0.
+}
 
-  if (logCount === 0) {
-    const tx = db.transaction('study_log', 'readwrite');
-    const store = tx.objectStore('study_log');
-    const today = new Date();
-    // Sembrar consistencia realista en las últimas 12 semanas (84 días)
-    const deterministicPattern = [
-      0, 4, 9, 14, 6, 18, 11, 0, 7, 15, 22, 12, 8, 5,
-      3, 12, 19, 8, 0, 14, 21, 9, 6, 16, 25, 13, 4, 10
-    ];
-
-    for (let i = 83; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(today.getDate() - i);
-      const count = i === 0 ? 8 : deterministicPattern[i % deterministicPattern.length];
-      if (count > 0) {
-        store.put({
-          date_key: formatDateKey(d),
-          reviews_count: count,
-          updated_at: d.toISOString()
-        });
-      }
-    }
-    await new Promise<void>((res, rej) => {
-      tx.oncomplete = () => res();
-      tx.onerror = () => rej(tx.error);
-    });
-  }
+function getVocabNaturalKey(item: VocabularyRecord): string {
+  return `${stripRubyTags(item.kanji).trim()}::${item.reading.trim()}`;
 }
 
 /**
- * Inserta o actualiza un lote de vocabulario preservando registros existentes
+ * Inserta o actualiza un lote de vocabulario eliminando duplicados por (kanji + reading).
+ * Si una palabra ya existía con un ID de semilla local (11111111-...) y llega del servidor
+ * con su UUID definitivo, reemplaza el registro viejo para que nunca aparezca duplicada.
  */
 export async function upsertVocabularyBatch(items: VocabularyRecord[]): Promise<void> {
   if (items.length === 0) return;
   const db = await openLocalDb();
+
+  const existingAll = await new Promise<VocabularyRecord[]>((resolve, reject) => {
+    const tx = db.transaction('vocabulary', 'readonly');
+    const req = tx.objectStore('vocabulary').getAll();
+    req.onsuccess = () => resolve((req.result as VocabularyRecord[]) || []);
+    req.onerror = () => reject(req.error);
+  });
+
+  const byNaturalKey = new Map<string, VocabularyRecord>();
+  for (const existing of existingAll) {
+    const key = getVocabNaturalKey(existing);
+    const prev = byNaturalKey.get(key);
+    if (!prev) {
+      byNaturalKey.set(key, existing);
+    } else {
+      // Si ya había duplicados previos en IndexedDB, preferimos el UUID real sobre el 11111111-...
+      const prevIsSeed = prev.id.startsWith('11111111-');
+      if (prevIsSeed && !existing.id.startsWith('11111111-')) {
+        byNaturalKey.set(key, existing);
+      }
+    }
+  }
+
   const tx = db.transaction('vocabulary', 'readwrite');
   const store = tx.objectStore('vocabulary');
 
+  // Limpiar cualquier duplicado previo que hubiera quedado en IndexedDB
+  const seenKeys = new Map<string, VocabularyRecord>();
+  for (const existing of existingAll) {
+    const key = getVocabNaturalKey(existing);
+    const prev = seenKeys.get(key);
+    if (!prev) {
+      seenKeys.set(key, existing);
+    } else {
+      const prevIsSeed = prev.id.startsWith('11111111-');
+      if (prevIsSeed && !existing.id.startsWith('11111111-')) {
+        store.delete(prev.id);
+        seenKeys.set(key, existing);
+      } else {
+        store.delete(existing.id);
+      }
+    }
+  }
+
   for (const item of items) {
-    store.put({
+    const key = getVocabNaturalKey(item);
+    const match = seenKeys.get(key);
+    const itemIsSeed = item.id.startsWith('11111111-');
+
+    if (match && match.id !== item.id) {
+      if (itemIsSeed && !match.id.startsWith('11111111-')) {
+        // Ya tenemos el UUID real del servidor para esta palabra; conservamos el ID del servidor
+        // pero si la semilla local tiene furigana <ruby>, enriquecemos el kanji
+        store.put({
+          ...match,
+          kanji: item.kanji?.includes('<ruby>') ? item.kanji : match.kanji,
+          example_sentence: item.example_sentence?.includes('<ruby>')
+            ? item.example_sentence
+            : match.example_sentence
+        });
+        continue;
+      }
+      // Si el que entra es del servidor y el local era semilla, borramos el ID de semilla viejo
+      store.delete(match.id);
+    }
+
+    const mergedRecord: VocabularyRecord = {
       ...item,
+      kanji:
+        match?.kanji?.includes('<ruby>') && !item.kanji?.includes('<ruby>')
+          ? match.kanji
+          : item.kanji,
+      example_sentence:
+        match?.example_sentence?.includes('<ruby>') && !item.example_sentence?.includes('<ruby>')
+          ? match.example_sentence
+          : item.example_sentence,
       updated_at: item.updated_at || new Date().toISOString()
-    });
+    };
+
+    store.put(mergedRecord);
+    seenKeys.set(key, mergedRecord);
   }
 
   await new Promise<void>((resolve, reject) => {
@@ -231,12 +346,23 @@ export async function upsertReviewsBatchLWW(
 
 export async function getAllVocabulary(): Promise<VocabularyRecord[]> {
   const db = await openLocalDb();
-  return new Promise((resolve, reject) => {
+  const rawList = await new Promise<VocabularyRecord[]>((resolve, reject) => {
     const tx = db.transaction('vocabulary', 'readonly');
     const req = tx.objectStore('vocabulary').getAll();
-    req.onsuccess = () => resolve(req.result as VocabularyRecord[]);
+    req.onsuccess = () => resolve((req.result as VocabularyRecord[]) || []);
     req.onerror = () => reject(req.error);
   });
+
+  // Garantizar cero duplicados por (kanji limpio + lectura)
+  const deduped = new Map<string, VocabularyRecord>();
+  for (const item of rawList) {
+    const key = getVocabNaturalKey(item);
+    const existing = deduped.get(key);
+    if (!existing || (existing.id.startsWith('11111111-') && !item.id.startsWith('11111111-'))) {
+      deduped.set(key, item);
+    }
+  }
+  return Array.from(deduped.values());
 }
 
 export async function getAllReviews(): Promise<SrsReviewRecord[]> {
@@ -272,6 +398,364 @@ export async function clearDirtyFlags(vocabularyIds: string[]): Promise<void> {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
+}
+
+// ============================================================================
+// Persistencia y Sincronización LWW de Mazos Personalizados (user_decks)
+// ============================================================================
+
+export async function getAllUserDecks(): Promise<UserDeckRecord[]> {
+  const db = await openLocalDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('user_decks', 'readonly');
+    const req = tx.objectStore('user_decks').getAll();
+    req.onsuccess = () => resolve((req.result as UserDeckRecord[]) || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function getDirtyUserDecks(): Promise<UserDeckRecord[]> {
+  const all = await getAllUserDecks();
+  return all.filter((d) => Boolean(d.dirty));
+}
+
+export async function clearDirtyUserDeckFlags(deckIds: string[]): Promise<void> {
+  if (deckIds.length === 0) return;
+  const idSet = new Set(deckIds);
+  const all = await getAllUserDecks();
+  const db = await openLocalDb();
+  const tx = db.transaction('user_decks', 'readwrite');
+  const store = tx.objectStore('user_decks');
+
+  for (const d of all) {
+    if (idSet.has(d.id) && d.dirty) {
+      store.put({ ...d, dirty: false });
+    }
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function upsertUserDecksBatchLWW(
+  incomingDecks: UserDeckRecord[]
+): Promise<{ applied: number; skippedStale: number }> {
+  if (incomingDecks.length === 0) return { applied: 0, skippedStale: 0 };
+  const db = await openLocalDb();
+  const existingAll = await getAllUserDecks();
+  const byId = new Map<string, UserDeckRecord>();
+  for (const deck of existingAll) {
+    byId.set(deck.id, deck);
+  }
+
+  let applied = 0;
+  let skippedStale = 0;
+
+  const tx = db.transaction('user_decks', 'readwrite');
+  const store = tx.objectStore('user_decks');
+
+  for (const incoming of incomingDecks) {
+    const local = byId.get(incoming.id);
+    if (!local) {
+      store.put({ ...incoming, dirty: false });
+      applied++;
+      continue;
+    }
+
+    const incomingTime = new Date(incoming.updated_at).getTime();
+    const localTime = new Date(local.updated_at).getTime();
+
+    if (incomingTime >= localTime) {
+      store.put({ ...incoming, dirty: false });
+      applied++;
+    } else {
+      skippedStale++;
+    }
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+
+  return { applied, skippedStale };
+}
+
+// ============================================================================
+// Persistencia y Sincronización LWW de Logs de Estudio (study_log)
+// ============================================================================
+
+export async function getAllStudyLogs(userId?: string): Promise<StudyLogRecord[]> {
+  const db = await openLocalDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('study_log', 'readonly');
+    const store = tx.objectStore('study_log');
+    const req = store.getAll();
+    req.onsuccess = () => {
+      const all = (req.result as StudyLogRecord[]) || [];
+      if (!userId) {
+        resolve(all);
+      } else {
+        resolve(all.filter((l) => l.user_id === userId));
+      }
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function getDirtyStudyLogs(userId?: string): Promise<StudyLogRecord[]> {
+  const all = await getAllStudyLogs(userId);
+  return all.filter((l) => Boolean(l.dirty));
+}
+
+export async function clearDirtyStudyLogFlags(keys: string[]): Promise<void> {
+  if (keys.length === 0) return;
+  const keySet = new Set(keys);
+  const all = await getAllStudyLogs();
+  const db = await openLocalDb();
+  const tx = db.transaction('study_log', 'readwrite');
+  const store = tx.objectStore('study_log');
+
+  for (const l of all) {
+    const id = l.id || `${l.user_id}::${l.date_key}`;
+    if (keySet.has(id) && l.dirty) {
+      store.put({ ...l, dirty: false });
+    }
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function upsertStudyLogsBatchLWW(
+  incomingLogs: StudyLogRecord[]
+): Promise<{ applied: number; skippedStale: number }> {
+  if (incomingLogs.length === 0) return { applied: 0, skippedStale: 0 };
+  const db = await openLocalDb();
+  const existingAll = await getAllStudyLogs();
+  const byUserDate = new Map<string, StudyLogRecord>();
+  for (const l of existingAll) {
+    const key = `${l.user_id}::${l.date_key}`;
+    byUserDate.set(key, l);
+  }
+
+  let applied = 0;
+  let skippedStale = 0;
+
+  const tx = db.transaction('study_log', 'readwrite');
+  const store = tx.objectStore('study_log');
+
+  for (const incoming of incomingLogs) {
+    const key = `${incoming.user_id}::${incoming.date_key}`;
+    const id = incoming.id || key;
+    const local = byUserDate.get(key);
+
+    if (!local) {
+      store.put({
+        ...incoming,
+        id,
+        dirty: false
+      });
+      applied++;
+      continue;
+    }
+
+    const incomingTime = new Date(incoming.updated_at).getTime();
+    const localTime = new Date(local.updated_at).getTime();
+
+    if (incomingTime >= localTime) {
+      store.put({
+        ...incoming,
+        id,
+        dirty: false
+      });
+      applied++;
+    } else {
+      skippedStale++;
+    }
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+
+  return { applied, skippedStale };
+}
+
+/**
+ * Crea un mazo personalizado en la tabla user_decks y asegura que todas las palabras
+ * elegidas queden activas en srs_reviews para repaso inmediato.
+ */
+export async function createCustomUserDeck(
+  name: string,
+  vocabularyIds: string[],
+  description: string | null = null,
+  userId: string = LOCAL_DEFAULT_USER_ID,
+  selectedWords: VocabularyRecord[] = []
+): Promise<UserDeckRecord> {
+  if (selectedWords.length > 0) {
+    await upsertVocabularyBatch(selectedWords);
+  }
+  const db = await openLocalDb();
+  const nowIso = new Date().toISOString();
+  const uniqueVocabIds = Array.from(new Set(vocabularyIds));
+
+  const newDeck: UserDeckRecord = {
+    id: crypto.randomUUID(),
+    user_id: userId,
+    name: name.trim(),
+    description: description?.trim() || null,
+    vocabulary_ids: uniqueVocabIds,
+    created_at: nowIso,
+    updated_at: nowIso,
+    deleted_at: null,
+    dirty: true
+  };
+
+  const existingReviews = await getAllReviews();
+  const reviewByVocab = new Map<string, SrsReviewRecord>();
+  for (const r of existingReviews) {
+    reviewByVocab.set(r.vocabulary_id, r);
+  }
+
+  const tx = db.transaction(['user_decks', 'srs_reviews'], 'readwrite');
+  tx.objectStore('user_decks').put(newDeck);
+
+  const reviewStore = tx.objectStore('srs_reviews');
+  for (const vocabId of uniqueVocabIds) {
+    const existing = reviewByVocab.get(vocabId);
+    if (!existing || existing.state === 'deleted' || existing.deleted_at) {
+      reviewStore.put({
+        id: existing?.id || crypto.randomUUID(),
+        user_id: existing?.user_id || userId,
+        vocabulary_id: vocabId,
+        state: 'new',
+        ease_factor: 2.5,
+        interval_days: 0,
+        next_review_date: nowIso,
+        lapses: existing?.lapses ?? 0,
+        updated_at: nowIso,
+        deleted_at: null,
+        dirty: true
+      } satisfies SrsReviewRecord);
+    }
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+
+  return newDeck;
+}
+
+export const SYSTEM_DEFAULT_DECK_IDS = new Set([
+  'jlpt-n5',
+  'verbs',
+  'jlpt-n4',
+  'nouns-adverbs',
+  'jlpt-n3-all'
+]);
+
+/**
+ * Elimina un mazo personalizado usando Soft-Delete (Tombstone) para sincronización LWW.
+ * Los mazos por defecto del sistema están protegidos y no pueden eliminarse.
+ */
+export async function deleteCustomUserDeck(deckId: string): Promise<void> {
+  if (SYSTEM_DEFAULT_DECK_IDS.has(deckId)) {
+    throw new Error('Los mazos por defecto no se pueden modificar ni eliminar.');
+  }
+  const db = await openLocalDb();
+  const all = await getAllUserDecks();
+  const target = all.find((d) => d.id === deckId);
+  if (!target) return;
+
+  const nowIso = new Date().toISOString();
+  const tx = db.transaction('user_decks', 'readwrite');
+  tx.objectStore('user_decks').put({
+    ...target,
+    updated_at: nowIso,
+    deleted_at: nowIso,
+    dirty: true
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/**
+ * Agrega o quita una palabra dentro de un mazo personalizado creado por el usuario.
+ * Valida estrictamente que no sea un mazo por defecto (los cuales son de solo lectura),
+ * guarda la palabra en IndexedDB local si viene del buscador remoto y activa su tarjeta SRS.
+ */
+export async function toggleWordInCustomUserDeck(
+  deckId: string,
+  vocabItem: VocabularyRecord,
+  userId: string = LOCAL_DEFAULT_USER_ID
+): Promise<{ updatedDeck: UserDeckRecord; added: boolean }> {
+  if (SYSTEM_DEFAULT_DECK_IDS.has(deckId)) {
+    throw new Error('Los mazos por defecto no se pueden modificar.');
+  }
+
+  await upsertVocabularyBatch([vocabItem]);
+
+  const db = await openLocalDb();
+  const allDecks = await getAllUserDecks();
+  const target = allDecks.find((d) => d.id === deckId && !d.deleted_at);
+  if (!target) {
+    throw new Error('Solo podés agregar palabras a tus propios mazos personalizados.');
+  }
+
+  const nowIso = new Date().toISOString();
+  const currentIds = Array.isArray(target.vocabulary_ids) ? [...target.vocabulary_ids] : [];
+  const alreadyInDeck = currentIds.includes(vocabItem.id);
+
+  const nextVocabIds = alreadyInDeck
+    ? currentIds.filter((id) => id !== vocabItem.id)
+    : [...currentIds, vocabItem.id];
+
+  const updatedDeck: UserDeckRecord = {
+    ...target,
+    vocabulary_ids: nextVocabIds,
+    updated_at: nowIso,
+    dirty: true
+  };
+
+  const existingReviews = await getAllReviews();
+  const existingReview = existingReviews.find((r) => r.vocabulary_id === vocabItem.id);
+
+  const tx = db.transaction(['user_decks', 'srs_reviews'], 'readwrite');
+  tx.objectStore('user_decks').put(updatedDeck);
+
+  if (!alreadyInDeck && (!existingReview || existingReview.state === 'deleted' || existingReview.deleted_at)) {
+    tx.objectStore('srs_reviews').put({
+      id: existingReview?.id || crypto.randomUUID(),
+      user_id: existingReview?.user_id || userId,
+      vocabulary_id: vocabItem.id,
+      state: 'new',
+      ease_factor: 2.5,
+      interval_days: 0,
+      next_review_date: nowIso,
+      lapses: existingReview?.lapses ?? 0,
+      updated_at: nowIso,
+      deleted_at: null,
+      dirty: true
+    } satisfies SrsReviewRecord);
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+
+  return { updatedDeck, added: !alreadyInDeck };
 }
 
 /**
@@ -321,19 +805,24 @@ export async function recordLocalCardReview(
   };
 
   const todayKey = formatDateKey(now);
+  const logKey = `${userId}::${todayKey}`;
 
   const tx = db.transaction(['srs_reviews', 'study_log'], 'readwrite');
   tx.objectStore('srs_reviews').put(updatedRecord);
 
   const logStore = tx.objectStore('study_log');
-  const getLogReq = logStore.get(todayKey);
+  const getLogReq = logStore.get(logKey);
   getLogReq.onsuccess = () => {
-    const currentCount = getLogReq.result?.reviews_count ?? 0;
+    const prev = getLogReq.result as StudyLogRecord | undefined;
+    const currentCount = prev?.reviews_count ?? 0;
     logStore.put({
+      id: logKey,
+      user_id: userId,
       date_key: todayKey,
       reviews_count: currentCount + 1,
-      updated_at: nowIso
-    });
+      updated_at: nowIso,
+      dirty: true
+    } satisfies StudyLogRecord);
   };
 
   await new Promise<void>((resolve, reject) => {
@@ -345,12 +834,17 @@ export async function recordLocalCardReview(
 }
 
 /**
- * Agrega una palabra al estudio o reactiva un registro con Soft-Delete (Tombstone)
+ * Agrega una palabra al estudio (guardándola en la base local si viene del buscador remoto)
+ * o desactiva un registro con Soft-Delete (Tombstone).
  */
 export async function toggleVocabularyInStudy(
   vocabularyId: string,
-  userId: string = LOCAL_DEFAULT_USER_ID
+  userId: string = LOCAL_DEFAULT_USER_ID,
+  vocabItem?: VocabularyRecord
 ): Promise<SrsReviewRecord> {
+  if (vocabItem) {
+    await upsertVocabularyBatch([vocabItem]);
+  }
   const db = await openLocalDb();
   const allReviews = await getAllReviews();
   const existing = allReviews.find((r) => r.vocabulary_id === vocabularyId);
@@ -399,7 +893,11 @@ export async function getDecksAndQueue(): Promise<{
   decks: DeckSummary[];
   allCards: StudyCardItem[];
 }> {
-  const [vocabList, reviewList] = await Promise.all([getAllVocabulary(), getAllReviews()]);
+  const [vocabList, reviewList, customDecksList] = await Promise.all([
+    getAllVocabulary(),
+    getAllReviews(),
+    getAllUserDecks()
+  ]);
   const reviewMap = new Map<string, SrsReviewRecord>();
   for (const r of reviewList) {
     reviewMap.set(r.vocabulary_id, r);
@@ -438,7 +936,9 @@ export async function getDecksAndQueue(): Promise<{
     subtitle: string,
     badge: string,
     accentVariant: DeckSummary['accentVariant'],
-    predicate: (v: VocabularyRecord) => boolean
+    predicate: (v: VocabularyRecord) => boolean,
+    createdAt: string,
+    isCustom: boolean = false
   ): DeckSummary => {
     const matching = activeCards.filter(predicate);
     const dueCards = matching.filter(
@@ -459,26 +959,30 @@ export async function getDecksAndQueue(): Promise<{
       newCards,
       masteredCards,
       accentVariant,
+      createdAt,
+      isCustom,
       filterFn: predicate
     };
   };
 
-  const decks: DeckSummary[] = [
+  const baseDecks: DeckSummary[] = [
     buildDeck(
       'jlpt-n5',
       'JLPT N5 Esencial',
       'Kanjis base, partículas y vocabulario diario',
       'N5 • 基礎',
       'mint',
-      (v) => v.jlpt_level === 5
+      (v) => v.jlpt_level === 5,
+      '2026-10-01T10:00:00.000Z'
     ),
     buildDeck(
       'verbs',
       'Verbos (動詞)',
-      ' Conjugaciones Godan, Ichidan y Suru',
+      'Conjugaciones Godan, Ichidan y Suru',
       '動詞 • VERBS',
       'olive',
-      (v) => v.part_of_speech.toLowerCase().includes('verb')
+      (v) => v.part_of_speech.toLowerCase().includes('verb'),
+      '2026-10-05T10:00:00.000Z'
     ),
     buildDeck(
       'jlpt-n4',
@@ -486,7 +990,8 @@ export async function getDecksAndQueue(): Promise<{
       'Compuestos abstractos y vida cotidiana',
       'N4 • 中級',
       'slate',
-      (v) => v.jlpt_level === 4
+      (v) => v.jlpt_level === 4,
+      '2026-10-10T10:00:00.000Z'
     ),
     buildDeck(
       'nouns-adverbs',
@@ -496,19 +1001,39 @@ export async function getDecksAndQueue(): Promise<{
       'emerald',
       (v) =>
         v.part_of_speech.toLowerCase().includes('noun') ||
-        v.part_of_speech.toLowerCase().includes('adverb')
+        v.part_of_speech.toLowerCase().includes('adverb'),
+      '2026-10-15T10:00:00.000Z'
     ),
     buildDeck(
       'jlpt-n3-all',
       'Inmersión Total (N5–N3)',
-      'Mazo completo de repaso espaciado activo',
-      '総合 • ALL',
+      'Todas las palabras activas para practicar',
+      '総合 • TODO',
       'mint',
-      () => true
+      () => true,
+      '2026-10-20T10:00:00.000Z'
     )
   ];
 
-  return { decks, allCards: activeCards };
+  const accentPalette: DeckSummary['accentVariant'][] = ['emerald', 'mint', 'olive', 'slate'];
+  const activeCustomDecks = customDecksList
+    .filter((d) => !d.deleted_at)
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+    .map((custom, idx) => {
+      const idSet = new Set(custom.vocabulary_ids || []);
+      return buildDeck(
+        custom.id,
+        custom.name,
+        custom.description || `${idSet.size} palabras seleccionadas`,
+        'カスタム • MÍO',
+        accentPalette[idx % accentPalette.length],
+        (v) => idSet.has(v.id),
+        custom.created_at,
+        true
+      );
+    });
+
+  return { decks: [...baseDecks, ...activeCustomDecks], allCards: activeCards };
 }
 
 /**
@@ -569,25 +1094,45 @@ export interface HeatmapDayCell {
   isToday: boolean;
 }
 
-export async function getStudyHeatmapCells(totalDays = 84): Promise<{
+export async function getStudyHeatmapCells(
+  totalDays = 84,
+  userId?: string
+): Promise<{
   cells: HeatmapDayCell[];
   totalReviews: number;
   currentStreak: number;
   todayCount: number;
 }> {
-  const db = await openLocalDb();
-  const logs = await new Promise<Array<{ date_key: string; reviews_count: number }>>(
-    (resolve, reject) => {
-      const tx = db.transaction('study_log', 'readonly');
-      const req = tx.objectStore('study_log').getAll();
-      req.onsuccess = () => resolve(req.result || []);
-      req.onerror = () => reject(req.error);
-    }
-  );
+  const [logs, allReviews] = await Promise.all([
+    getAllStudyLogs(userId),
+    getAllReviews()
+  ]);
 
   const countMap = new Map<string, number>();
+
+  // 1. Cargar conteos registrados en study_log para este usuario
   for (const item of logs) {
+    if (userId && item.user_id !== userId) continue;
     countMap.set(item.date_key, item.reviews_count);
+  }
+
+  // 2. Si no había log explícito pero el usuario realizó repasos reales en srs_reviews,
+  // computar los repasos de esas fechas para máxima consistencia y respaldo
+  const userReviews = userId ? allReviews.filter((r) => r.user_id === userId) : allReviews;
+  for (const r of userReviews) {
+    if (r.updated_at) {
+      try {
+        const d = new Date(r.updated_at);
+        if (!Number.isNaN(d.getTime())) {
+          const k = formatDateKey(d);
+          if (!countMap.has(k)) {
+            countMap.set(k, 1);
+          }
+        }
+      } catch {
+        // Ignorar fechas malformadas
+      }
+    }
   }
 
   const today = new Date();

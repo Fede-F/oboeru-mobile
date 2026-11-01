@@ -1,20 +1,22 @@
 <script lang="ts">
   import {
-    MAX_SYNC_BATCH_SIZE,
-    OBOERU_API_BASE_URL,
     syncManager,
     syncState,
+    type SyncNetworkPolicy,
     type SyncStatusState
   } from '../lib/sync/SyncManager';
   import {
-    DEFAULT_APP_NAME,
     checkForOtaUpdates,
     getCurrentAppVersion,
     reloadApp,
-    resetToNativeBundle,
     subscribeOtaState
   } from '../lib/otaUpdater.js';
-  import { hapticImpactMedium, hapticSuccess, hapticWarning } from '../lib/haptics.js';
+  import {
+    hapticImpactMedium,
+    hapticSelection,
+    hapticSuccess
+  } from '../lib/haptics.js';
+  import VersionBadge from './VersionBadge.svelte';
 
   interface Props {
     onSyncCompleted: () => Promise<void>;
@@ -22,15 +24,8 @@
 
   let { onSyncCompleted }: Props = $props();
 
-  let authMode = $state<'login' | 'register'>('login');
-  let email = $state('');
-  let password = $state('');
-  let isSubmittingAuth = $state(false);
-  let authFeedback = $state<string | null>(null);
-
   let currentVersion = $state('1.0.0');
   let isCheckingOta = $state(false);
-  let showResetModal = $state(false);
 
   let otaState = $state({
     status: 'idle',
@@ -50,7 +45,10 @@
     skippedLwwStale: 0,
     isAuthenticated: false,
     userEmail: null,
-    errorMessage: null
+    userFullName: null,
+    errorMessage: null,
+    networkPolicy: 'wifi_only',
+    networkType: 'wifi'
   });
 
   $effect(() => {
@@ -61,6 +59,7 @@
       otaState = state;
     });
 
+    syncManager.refreshNetworkInfo();
     syncManager.refreshPendingCount();
     getCurrentAppVersion().then((v) => {
       currentVersion = v;
@@ -72,22 +71,10 @@
     };
   });
 
-  async function handleAuthSubmit(e: SubmitEvent) {
-    e.preventDefault();
-    authFeedback = null;
-    isSubmittingAuth = true;
-    await hapticImpactMedium();
-    try {
-      await syncManager.authenticate(authMode, email, password);
-      await hapticSuccess();
-      password = '';
-      await onSyncCompleted();
-    } catch (err) {
-      await hapticWarning();
-      authFeedback = err instanceof Error ? err.message : 'Error de conexión';
-    } finally {
-      isSubmittingAuth = false;
-    }
+  async function handleChangeNetworkPolicy(policy: SyncNetworkPolicy) {
+    if (currentSync.networkPolicy === policy) return;
+    await hapticSelection();
+    syncManager.setNetworkPolicy(policy);
   }
 
   async function handleManualSync() {
@@ -110,56 +97,140 @@
     }
   }
 
-  async function handleFactoryReset() {
-    await hapticWarning();
-    showResetModal = false;
-    await resetToNativeBundle();
+  async function handleLogout() {
+    await hapticImpactMedium();
+    await syncManager.logout();
   }
 </script>
 
 <div class="space-y-4">
-  <!-- 1. Panel de Estado de Sincronización LWW (Datos SRS) -->
+  <!-- 1. Perfil del Usuario Activo -->
+  <section class="rounded-3xl bg-[#121820] border border-white/10 p-5 space-y-3 shadow-xl">
+    <div class="flex items-center justify-between gap-3">
+      <div class="flex items-center gap-3 min-w-0">
+        <div class="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#43534a] to-[#1a231f] border border-[#a7f3d0]/30 flex items-center justify-center text-[#a7f3d0] font-extrabold text-base shrink-0">
+          {(currentSync.userFullName || currentSync.userEmail || 'U').charAt(0).toUpperCase()}
+        </div>
+        <div class="min-w-0">
+          <span class="text-[10px] uppercase tracking-wider text-[#a7f3d0] font-bold block">
+            Tu Cuenta
+          </span>
+          <p class="text-base font-bold text-white truncate">
+            {currentSync.userFullName || 'Usuario de Oboeru'}
+          </p>
+          <p class="text-xs text-slate-400 truncate">
+            {currentSync.userEmail}
+          </p>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onclick={handleLogout}
+        class="touch-target px-4 py-2 rounded-full bg-[#171717] border border-rose-500/25 text-rose-300 text-xs font-bold active-press shrink-0"
+      >
+        Cerrar sesión
+      </button>
+    </div>
+  </section>
+
+  <!-- 2. Panel de Estado de Sincronización -->
   <section class="rounded-3xl bg-[#121820] border border-white/10 p-5 space-y-4 shadow-xl">
     <div class="flex items-center justify-between">
       <div>
         <span class="px-2.5 py-0.5 rounded-full bg-[#a7f3d0]/15 text-[#a7f3d0] text-[10px] font-bold uppercase tracking-wider">
-          SyncManager • LWW
+          Respaldo en la Nube
         </span>
         <h2 class="text-lg font-bold text-white mt-1.5">
-          Sincronización de Datos SRS
+          Tu Progreso de Estudio
         </h2>
         <p class="text-xs text-slate-400">
-          API: <code class="text-[#a7f3d0]">{OBOERU_API_BASE_URL}</code>
+          Tus repasos y mazos se guardan automáticamente en tu cuenta.
         </p>
       </div>
-
-      <span class="px-3 py-1 rounded-full bg-[#171717] border border-white/10 text-[11px] font-bold text-amber-300">
-        Máx {MAX_SYNC_BATCH_SIZE} / lote
-      </span>
     </div>
 
-    <!-- Métricas de Cola y LWW -->
+    <!-- Métricas de Sincronización -->
     <div class="grid grid-cols-3 gap-2.5">
       <div class="p-3 rounded-2xl bg-[#0b0f15] border border-white/10 text-center">
-        <span class="text-[10px] uppercase tracking-wider text-slate-400 block">Pendientes</span>
+        <span class="text-[10px] uppercase tracking-wider text-slate-400 block">Por guardar</span>
         <span class="text-lg font-extrabold text-amber-300">{currentSync.pendingChanges}</span>
       </div>
       <div class="p-3 rounded-2xl bg-[#0b0f15] border border-white/10 text-center">
-        <span class="text-[10px] uppercase tracking-wider text-slate-400 block">Push / Pull</span>
+        <span class="text-[10px] uppercase tracking-wider text-slate-400 block">Subidos</span>
         <span class="text-lg font-extrabold text-[#a7f3d0]">
-          {currentSync.pushedCount}/{currentSync.pulledCount}
+          {currentSync.pushedCount}
         </span>
       </div>
       <div class="p-3 rounded-2xl bg-[#0b0f15] border border-white/10 text-center">
-        <span class="text-[10px] uppercase tracking-wider text-slate-400 block">LWW Omitidos</span>
-        <span class="text-lg font-extrabold text-slate-200">{currentSync.skippedLwwStale}</span>
+        <span class="text-[10px] uppercase tracking-wider text-slate-400 block">Recibidos</span>
+        <span class="text-lg font-extrabold text-slate-200">{currentSync.pulledCount}</span>
+      </div>
+    </div>
+
+    <!-- Preferencia de Conexión para Sincronización Automática -->
+    <div class="rounded-2xl bg-[#0b0f15] border border-white/10 p-3.5 space-y-2.5">
+      <div class="flex items-center justify-between gap-2">
+        <div>
+          <span class="text-xs font-bold text-white block">
+            Sincronización automática
+          </span>
+          <span class="text-[11px] text-slate-400">
+            Elegí cuándo sincronizar tu progreso en segundo plano
+          </span>
+        </div>
+        <span class="px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-[10px] font-semibold text-slate-300 shrink-0">
+          {currentSync.networkType === 'wifi'
+            ? 'Wi-Fi activo'
+            : currentSync.networkType === 'metered'
+              ? 'Datos móviles'
+              : 'Sin conexión'}
+        </span>
+      </div>
+
+      <div
+        role="group"
+        aria-label="Preferencia de red para sincronización automática"
+        class="grid grid-cols-2 gap-2"
+      >
+        <button
+          type="button"
+          onclick={() => handleChangeNetworkPolicy('wifi_only')}
+          aria-pressed={currentSync.networkPolicy === 'wifi_only'}
+          class="touch-target px-3 py-2.5 rounded-xl border text-left transition-all active-press flex flex-col justify-between {currentSync.networkPolicy === 'wifi_only'
+            ? 'bg-[#1c2b25] border-[#a7f3d0] text-white'
+            : 'bg-[#141920] border-white/10 text-slate-400 hover:text-slate-200'}"
+        >
+          <span class="text-xs font-bold {currentSync.networkPolicy === 'wifi_only' ? 'text-[#a7f3d0]' : 'text-slate-200'}">
+            Solo con Wi-Fi
+          </span>
+          <span class="text-[10px] text-slate-400 mt-0.5 leading-snug">
+            Pregunta antes de usar datos móviles
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onclick={() => handleChangeNetworkPolicy('always')}
+          aria-pressed={currentSync.networkPolicy === 'always'}
+          class="touch-target px-3 py-2.5 rounded-xl border text-left transition-all active-press flex flex-col justify-between {currentSync.networkPolicy === 'always'
+            ? 'bg-[#1c2b25] border-[#a7f3d0] text-white'
+            : 'bg-[#141920] border-white/10 text-slate-400 hover:text-slate-200'}"
+        >
+          <span class="text-xs font-bold {currentSync.networkPolicy === 'always' ? 'text-[#a7f3d0]' : 'text-slate-200'}">
+            Wi-Fi y datos móviles
+          </span>
+          <span class="text-[10px] text-slate-400 mt-0.5 leading-snug">
+            Sincroniza siempre automáticamente
+          </span>
+        </button>
       </div>
     </div>
 
     <div class="text-xs text-slate-400 flex items-center justify-between px-1">
-      <span>Último Delta Sync:</span>
+      <span>Última sincronización:</span>
       <span class="font-mono text-slate-200">
-        {currentSync.lastSyncAt ? new Date(currentSync.lastSyncAt).toLocaleString() : 'Solo Local'}
+        {currentSync.lastSyncAt ? new Date(currentSync.lastSyncAt).toLocaleString() : 'Guardado en este dispositivo'}
       </span>
     </div>
 
@@ -176,119 +247,45 @@
       class="w-full touch-target rounded-full bg-[#a7f3d0] hover:bg-emerald-200 disabled:opacity-50 text-slate-950 font-extrabold text-xs active-press shadow-lg flex items-center justify-center gap-2"
     >
       {#if currentSync.status === 'syncing'}
-        <span>Sincronizando lotes (máx 200)...</span>
+        <span>Guardando tu progreso...</span>
       {:else}
-        <span>🔄 Sincronizar Ahora (Delta Push & Pull)</span>
+        <span>🔄 Sincronizar progreso ahora</span>
       {/if}
     </button>
   </section>
 
-  <!-- 2. Panel de Cuenta Cloud Oboeru API -->
-  <section class="rounded-3xl bg-[#121820] border border-white/10 p-5 space-y-4 shadow-xl">
-    {#if currentSync.isAuthenticated}
-      <div class="flex items-center justify-between">
-        <div>
-          <span class="text-[10px] uppercase tracking-wider text-[#a7f3d0] font-bold">
-            Sesión Cloud Activa
-          </span>
-          <p class="text-sm font-bold text-white mt-0.5">{currentSync.userEmail}</p>
-        </div>
-
-        <button
-          type="button"
-          onclick={() => syncManager.logout()}
-          class="touch-target px-4 py-2 rounded-full bg-[#171717] border border-white/10 text-rose-300 text-xs font-bold active-press"
-        >
-          Cerrar sesión
-        </button>
-      </div>
-    {:else}
-      <div class="flex items-center justify-between">
-        <h3 class="text-sm font-bold text-white">
-          Conectar cuenta Cloud (Opcional)
-        </h3>
-        <div class="flex rounded-full bg-[#0b0f15] p-1 border border-white/10 text-[11px]">
-          <button
-            type="button"
-            onclick={() => (authMode = 'login')}
-            class="px-3 py-1 rounded-full font-bold {authMode === 'login' ? 'bg-[#a7f3d0] text-slate-950' : 'text-slate-400'}"
-          >
-            Login
-          </button>
-          <button
-            type="button"
-            onclick={() => (authMode = 'register')}
-            class="px-3 py-1 rounded-full font-bold {authMode === 'register' ? 'bg-[#a7f3d0] text-slate-950' : 'text-slate-400'}"
-          >
-            Registro
-          </button>
-        </div>
-      </div>
-
-      <form onsubmit={handleAuthSubmit} class="space-y-3">
-        <input
-          type="email"
-          bind:value={email}
-          required
-          placeholder="tu@email.com"
-          enterkeyhint="next"
-          class="w-full h-12 px-4 rounded-2xl bg-[#0b0f15] border border-white/10 text-sm text-white placeholder:text-slate-500 focus:border-[#a7f3d0] focus:outline-none"
-        />
-        <input
-          type="password"
-          bind:value={password}
-          required
-          minlength="8"
-          placeholder="Contraseña (mín. 8 caracteres)"
-          enterkeyhint="done"
-          class="w-full h-12 px-4 rounded-2xl bg-[#0b0f15] border border-white/10 text-sm text-white placeholder:text-slate-500 focus:border-[#a7f3d0] focus:outline-none"
-        />
-
-        {#if authFeedback}
-          <p class="text-xs text-rose-400">{authFeedback}</p>
-        {/if}
-
-        <button
-          type="submit"
-          disabled={isSubmittingAuth}
-          class="w-full touch-target rounded-full bg-[#171717] border border-[#a7f3d0]/40 text-[#a7f3d0] font-bold text-xs active-press"
-        >
-          {isSubmittingAuth
-            ? 'Autenticando...'
-            : authMode === 'login'
-              ? 'Iniciar Sesión y Sincronizar'
-              : 'Crear Cuenta en Oboeru Cloud'}
-        </button>
-      </form>
-    {/if}
-  </section>
-
-  <!-- 3. Centro de Actualizaciones OTA (Capgo + Cloudflare Worker Multi-Tenant) -->
+  <!-- 3. Centro de Actualizaciones de la App -->
   <section class="rounded-3xl bg-[#121820] border border-white/10 p-5 space-y-4 shadow-xl">
     <div class="flex items-center justify-between">
       <div>
         <span class="px-2.5 py-0.5 rounded-full bg-amber-400/15 text-amber-300 text-[10px] font-bold uppercase tracking-wider">
-          Capgo OTA • Cloudflare Worker
+          Versión de la App
         </span>
         <h3 class="text-base font-bold text-white mt-1.5">
-          Actualizaciones Over-The-Air
+          Actualizaciones
         </h3>
       </div>
       <span class="text-xs font-mono font-bold text-[#a7f3d0]">v{currentVersion}</span>
     </div>
 
-    <div class="p-2.5 rounded-xl bg-[#0b0f15] border border-white/10 text-[11px] font-mono text-[#a7f3d0] break-all select-text">
-      mobile-ota-updater.fede-eagle.workers.dev/{DEFAULT_APP_NAME}/version
-    </div>
-
     <div class="space-y-1.5 bg-[#0b0f15] p-3.5 rounded-2xl border border-white/10 text-xs">
       <div class="flex justify-between">
-        <span class="text-slate-400">Estado del canal OTA:</span>
-        <span class="font-bold text-[#a7f3d0] capitalize">{otaState.status}</span>
+        <span class="text-slate-400">Estado:</span>
+        <span class="font-bold text-[#a7f3d0]">
+          {otaState.status === 'up-to-date'
+            ? 'Al día'
+            : otaState.status === 'checking'
+              ? 'Buscando...'
+              : otaState.status === 'downloading'
+                ? 'Descargando mejora...'
+                : otaState.status === 'ready'
+                  ? 'Lista para aplicar'
+                  : 'Al día'}
+        </span>
       </div>
       {#if otaState.availableVersion}
         <div class="flex justify-between">
-          <span class="text-slate-400">Versión detectada:</span>
+          <span class="text-slate-400">Nueva versión:</span>
           <span class="font-bold text-amber-300">v{otaState.availableVersion}</span>
         </div>
       {/if}
@@ -301,7 +298,7 @@
         disabled={isCheckingOta}
         class="flex-1 touch-target rounded-full bg-[#171717] border border-[#a7f3d0]/30 text-[#a7f3d0] font-bold text-xs active-press"
       >
-        {isCheckingOta ? 'Consultando Worker...' : 'Buscar OTA Ahora'}
+        {isCheckingOta ? 'Buscando mejoras...' : 'Buscar actualizaciones'}
       </button>
 
       {#if otaState.updateReadyToApply}
@@ -314,40 +311,10 @@
         </button>
       {/if}
     </div>
-
-    <button
-      type="button"
-      onclick={() => (showResetModal = true)}
-      class="w-full touch-target rounded-full bg-[#171717] border border-rose-500/20 text-rose-300/90 text-xs font-semibold active-press"
-    >
-      Restaurar Bundle Nativo de Fábrica (Rollback)
-    </button>
   </section>
 
-  {#if showResetModal}
-    <div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-5">
-      <div class="bg-[#121820] max-w-sm w-full p-5 rounded-3xl border border-rose-500/30 space-y-4">
-        <h3 class="text-base font-bold text-white">¿Restaurar a versión de fábrica?</h3>
-        <p class="text-xs text-slate-300 leading-relaxed">
-          Esto revertirá cualquier bundle OTA descargado y ejecutará la versión compilada en el APK original. Tus repasos locales en IndexedDB/SQLite se mantienen intactos.
-        </p>
-        <div class="flex gap-2">
-          <button
-            type="button"
-            onclick={() => (showResetModal = false)}
-            class="flex-1 touch-target rounded-full bg-[#171717] border border-white/10 text-slate-300 font-semibold text-xs active-press"
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            onclick={handleFactoryReset}
-            class="flex-1 touch-target rounded-full bg-rose-600 text-white font-bold text-xs active-press"
-          >
-            Confirmar Rollback
-          </button>
-        </div>
-      </div>
-    </div>
-  {/if}
+  <!-- Indicador de Versión (exclusivo en la sección Cuenta) -->
+  <div class="pt-1">
+    <VersionBadge variant="footer" />
+  </div>
 </div>
