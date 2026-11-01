@@ -164,6 +164,79 @@ export async function getCurrentAppVersion() {
 }
 
 /**
+ * Resolves the SHA-256 checksum required by @capgo/capacitor-updater v8 on Android.
+ * Checks the worker payload, downloads and hashes the bundle in memory, or inspects release metadata.
+ */
+async function resolveChecksum(bundleUrl, latestVersion, providedChecksum) {
+  if (providedChecksum && typeof providedChecksum === 'string' && providedChecksum.trim()) {
+    const clean = providedChecksum.trim().replace(/^sha256:/i, '').toLowerCase();
+    if (/^[a-f0-9]{64}$/.test(clean)) {
+      return clean;
+    }
+  }
+
+  // Strategy 1: Fetch the small bundle (dist.zip is ~80KB) and hash via Web Crypto API
+  try {
+    const res = await fetch(bundleUrl, { method: 'GET' });
+    if (res.ok) {
+      const buf = await res.arrayBuffer();
+      if (buf && buf.byteLength > 0 && typeof crypto !== 'undefined' && crypto.subtle) {
+        const hashBuf = await crypto.subtle.digest('SHA-256', buf);
+        const hashHex = Array.from(new Uint8Array(hashBuf))
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('')
+          .toLowerCase();
+        if (hashHex && hashHex.length === 64) {
+          console.log(`[OTA] 🔑 Computed SHA-256 checksum for v${latestVersion}: ${hashHex}`);
+          return hashHex;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[OTA] Direct SHA-256 computation failed, trying fallback sources:', err);
+  }
+
+  // Strategy 2: Fetch companion .sha256 file
+  try {
+    const shaRes = await fetch(`${bundleUrl}.sha256`, { method: 'GET' });
+    if (shaRes.ok) {
+      const shaText = (await shaRes.text()).trim();
+      const match = shaText.match(/[a-fA-F0-9]{64}/);
+      if (match) {
+        console.log(`[OTA] 🔑 Found companion SHA-256 for v${latestVersion}: ${match[0].toLowerCase()}`);
+        return match[0].toLowerCase();
+      }
+    }
+  } catch (err) {
+    console.warn('[OTA] Companion .sha256 fetch failed:', err);
+  }
+
+  // Strategy 3: Query GitHub Releases API for dist.zip digest
+  try {
+    const cleanTag = latestVersion.startsWith('v') ? latestVersion : `v${latestVersion}`;
+    const ghRes = await fetch(
+      `https://api.github.com/repos/Fede-F/oboeru-mobile/releases/tags/${encodeURIComponent(cleanTag)}`,
+      { headers: { Accept: 'application/vnd.github.v3+json' } }
+    );
+    if (ghRes.ok) {
+      const ghData = await ghRes.json();
+      const distAsset = ghData.assets?.find((a) => a.name === 'dist.zip');
+      if (distAsset?.digest) {
+        const hash = distAsset.digest.replace(/^sha256:/i, '').trim().toLowerCase();
+        if (/^[a-f0-9]{64}$/.test(hash)) {
+          console.log(`[OTA] 🔑 Resolved SHA-256 from GitHub Release digest: ${hash}`);
+          return hash;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[OTA] GitHub Releases API digest lookup failed:', err);
+  }
+
+  return null;
+}
+
+/**
  * Check for updates against the Cloudflare Worker endpoint (GET /:repo/version)
  */
 export async function checkForOtaUpdates(config = {}) {
@@ -174,7 +247,7 @@ export async function checkForOtaUpdates(config = {}) {
 
   if (!Capacitor.isNativePlatform()) {
     const currentVersion = await getCurrentAppVersion();
-    updateState({ status: 'up-to-date', currentVersion });
+    updateState({ status: 'up-to-date', currentVersion, availableVersion: null, error: null });
     return { updateAvailable: false };
   }
 
@@ -206,32 +279,46 @@ export async function checkForOtaUpdates(config = {}) {
     const bundleUrl = data.downloadUrl || data.url || data.bundleUrl;
 
     if (!latestVersion || !bundleUrl || latestVersion === currentClean) {
-      updateState({ status: 'up-to-date', availableVersion: latestVersion || currentClean });
+      updateState({
+        status: 'up-to-date',
+        currentVersion: currentClean,
+        availableVersion: null,
+        error: null
+      });
       return { updateAvailable: false, version: currentClean };
     }
 
     updateState({
       status: 'downloading',
       availableVersion: latestVersion,
-      downloadProgress: 0
+      downloadProgress: 0,
+      error: null
     });
+
+    const checksum = await resolveChecksum(bundleUrl, latestVersion, data.checksum);
+    if (!checksum) {
+      throw new Error('No se pudo verificar el checksum SHA-256 del paquete OTA.');
+    }
 
     const downloadOpts = {
       url: bundleUrl,
-      version: latestVersion
+      version: latestVersion,
+      checksum
     };
-    if (data.checksum) {
-      downloadOpts.checksum = data.checksum;
-    }
 
+    console.log(`[OTA] 📥 Starting download of v${latestVersion} with checksum:`, checksum);
     const bundle = await CapacitorUpdater.download(downloadOpts);
-    await CapacitorUpdater.set(bundle);
+    console.log(`[OTA] ✅ Download complete. Staging bundle id:`, bundle?.id);
+
+    // Stage bundle to activate on next launch or backgrounding without crashing active UI
+    await CapacitorUpdater.next({ id: bundle.id || latestVersion });
 
     updateState({
       status: 'ready',
       availableVersion: latestVersion,
       updateReadyToApply: true,
-      downloadProgress: 100
+      downloadProgress: 100,
+      error: null
     });
 
     if (autoReload) {
@@ -248,7 +335,8 @@ export async function checkForOtaUpdates(config = {}) {
     console.error('[OTA] ❌ Check/Download failed:', errorMsg);
     updateState({
       status: 'error',
-      error: errorMsg
+      error: errorMsg,
+      updateReadyToApply: false
     });
     return { updateAvailable: false };
   }

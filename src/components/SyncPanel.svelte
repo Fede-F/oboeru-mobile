@@ -88,13 +88,20 @@
     await hapticImpactMedium();
     isCheckingOta = true;
     try {
-      await checkForOtaUpdates({ autoReload: false });
-      if (otaState.status === 'up-to-date') {
+      const res = await checkForOtaUpdates({ autoReload: false });
+      if (res.updateAvailable) {
+        await hapticSuccess();
+      } else if (otaState.status === 'up-to-date') {
         await hapticSuccess();
       }
     } finally {
       isCheckingOta = false;
     }
+  }
+
+  async function handleApplyUpdate() {
+    await hapticSuccess();
+    await reloadApp();
   }
 
   async function handleLogout() {
@@ -268,48 +275,55 @@
       <span class="text-xs font-mono font-bold text-[#a7f3d0]">v{currentVersion}</span>
     </div>
 
-    <div class="space-y-1.5 bg-[#0b0f15] p-3.5 rounded-2xl border border-white/10 text-xs">
-      <div class="flex justify-between">
+    <div class="space-y-2 bg-[#0b0f15] p-3.5 rounded-2xl border border-white/10 text-xs">
+      <div class="flex justify-between items-center">
         <span class="text-slate-400">Estado:</span>
-        <span class="font-bold text-[#a7f3d0]">
+        <span class="font-bold {otaState.status === 'error' ? 'text-rose-400' : otaState.status === 'downloading' ? 'text-amber-300' : otaState.status === 'checking' ? 'text-slate-300' : 'text-[#a7f3d0]'}">
           {otaState.status === 'up-to-date'
             ? 'Al día'
             : otaState.status === 'checking'
               ? 'Buscando...'
               : otaState.status === 'downloading'
-                ? 'Descargando mejora...'
+                ? 'Descargando actualización...'
                 : otaState.status === 'ready'
                   ? 'Lista para aplicar'
-                  : 'Al día'}
+                  : otaState.status === 'error'
+                    ? 'Error al comprobar/descargar'
+                    : 'Al día'}
         </span>
       </div>
-      {#if otaState.availableVersion}
-        <div class="flex justify-between">
+      {#if otaState.availableVersion && otaState.availableVersion !== currentVersion}
+        <div class="flex justify-between items-center">
           <span class="text-slate-400">Nueva versión:</span>
           <span class="font-bold text-amber-300">v{otaState.availableVersion}</span>
         </div>
       {/if}
+      {#if otaState.error}
+        <div class="pt-1.5 border-t border-rose-500/20 text-rose-300 text-[11px] leading-tight">
+          {otaState.error}
+        </div>
+      {/if}
     </div>
 
-    <div class="flex gap-2.5">
+    <div class="space-y-2.5">
+      {#if otaState.updateReadyToApply}
+        <button
+          type="button"
+          onclick={handleApplyUpdate}
+          class="w-full touch-target rounded-full bg-[#a7f3d0] hover:bg-emerald-200 text-slate-950 font-extrabold text-xs active-press shadow-lg flex items-center justify-center gap-2 py-3"
+        >
+          <span>🚀 Reiniciar y aplicar v{otaState.availableVersion || 'nueva'}</span>
+        </button>
+      {/if}
+
       <button
         type="button"
         onclick={handleManualOtaCheck}
         disabled={isCheckingOta}
-        class="flex-1 touch-target rounded-full bg-[#171717] border border-[#a7f3d0]/30 text-[#a7f3d0] font-bold text-xs active-press"
+        class="w-full touch-target rounded-full bg-[#171717] border border-[#a7f3d0]/30 text-[#a7f3d0] font-bold text-xs active-press flex items-center justify-center gap-2"
       >
-        {isCheckingOta ? 'Buscando mejoras...' : 'Buscar actualizaciones'}
+        {isCheckingOta ? 'Descargando mejora...' : 'Buscar actualizaciones'}
       </button>
-
-      {#if otaState.updateReadyToApply}
-        <button
-          type="button"
-          onclick={() => reloadApp()}
-          class="touch-target px-4 rounded-full bg-[#a7f3d0] text-slate-950 font-extrabold text-xs active-press"
-        >
-          Aplicar
-        </button>
-      {/if}
     </div>
   </section>
 

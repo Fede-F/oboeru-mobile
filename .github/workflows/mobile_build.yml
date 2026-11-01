@@ -93,6 +93,7 @@ jobs:
             Los dispositivos existentes con este binario descargarán e instalarán automáticamente el bundle `dist.zip` sin pasar por la Play Store ni requerir reinstalación manual.
           files: |
             dist.zip
+            dist.zip.sha256
             app-debug.apk
           draft: false
           prerelease: false

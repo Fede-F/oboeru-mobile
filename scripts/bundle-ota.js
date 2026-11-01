@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import archiver from 'archiver';
 import { fileURLToPath } from 'node:url';
 
@@ -8,6 +9,7 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 const distDir = path.resolve(rootDir, 'dist');
 const outputFile = path.resolve(rootDir, 'dist.zip');
+const checksumFile = path.resolve(rootDir, 'dist.zip.sha256');
 
 async function bundleOta() {
   console.log('📦 Starting OTA bundle creation...');
@@ -17,10 +19,13 @@ async function bundleOta() {
     process.exit(1);
   }
 
-  // Remove existing dist.zip if present
+  // Remove existing dist.zip and checksum if present
   if (fs.existsSync(outputFile)) {
     fs.unlinkSync(outputFile);
     console.log('🗑️ Removed old dist.zip');
+  }
+  if (fs.existsSync(checksumFile)) {
+    fs.unlinkSync(checksumFile);
   }
 
   const output = fs.createWriteStream(outputFile);
@@ -32,6 +37,13 @@ async function bundleOta() {
     output.on('close', () => {
       const sizeMb = (archive.pointer() / (1024 * 1024)).toFixed(2);
       console.log(`✅ OTA bundle created successfully: dist.zip (${sizeMb} MB)`);
+
+      // Compute and record SHA-256 checksum for Capgo compatibility
+      const fileBuffer = fs.readFileSync(outputFile);
+      const sha256 = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+      fs.writeFileSync(checksumFile, sha256, 'utf8');
+      console.log(`🔑 Bundle SHA-256 checksum: ${sha256}`);
+
       resolve();
     });
 

@@ -6,6 +6,7 @@ node_modules/
 # Production build outputs
 dist/
 dist.zip
+*.sha256
 *.apk
 *.aab
 
