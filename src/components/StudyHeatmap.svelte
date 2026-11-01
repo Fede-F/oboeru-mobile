@@ -70,16 +70,16 @@
   </div>
 
   <!-- Grilla estilo GitHub (12 semanas x 7 días) -->
-  <div class="overflow-x-auto pb-1">
-    <div class="grid grid-flow-col auto-cols-fr gap-1.5 min-w-[290px]">
+  <div class="w-full">
+    <div class="grid grid-flow-col auto-cols-fr gap-1">
       {#each weeks as week}
-        <div class="grid grid-rows-7 gap-1.5">
+        <div class="grid grid-rows-7 gap-1">
           {#each week as cell (cell.dateKey)}
             <button
               type="button"
               onclick={() => selectDay(cell)}
               aria-label="{cell.dateKey}: {cell.count} repasos"
-              class="w-full aspect-square rounded-[4px] transition-transform active:scale-125 {getLevelClasses(cell.level, cell.isToday)}"
+              class="w-full aspect-square rounded-[3px] transition-transform active:scale-125 {getLevelClasses(cell.level, cell.isToday)}"
             ></button>
           {/each}
         </div>
