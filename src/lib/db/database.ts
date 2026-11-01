@@ -10,6 +10,7 @@ import type {
 import { INITIAL_VOCABULARY_SEED } from './seedVocabulary';
 import { calculateNextReview } from '../srs/sm2';
 import { convertSearchQueryToKana, stripRubyTags, toRomajiText } from '../utils/japanese';
+import { getDeconjugatedCandidates } from '../utils/conjugator';
 
 const DB_NAME = 'oboeru_offline_db';
 const DB_VERSION = 5;
@@ -1167,6 +1168,7 @@ export async function searchLocalVocabulary(
   const qLower = converted.raw.toLowerCase();
   const hira = converted.hiragana;
   const kata = converted.katakana;
+  const deconjugated = getDeconjugatedCandidates(rawQuery);
 
   return vocabList
     .filter((v) => {
@@ -1176,6 +1178,16 @@ export async function searchLocalVocabulary(
       const cleanKanji = stripRubyTags(v.kanji);
       const itemRomaji = toRomajiText(v.reading).toLowerCase();
 
+      const matchesDeconjugated =
+        deconjugated.length > 0 &&
+        deconjugated.some((cand) => {
+          return (
+            cleanKanji.includes(cand) ||
+            v.reading.includes(cand) ||
+            (cand.length >= 2 && cleanKanji.startsWith(cand.slice(0, -1)))
+          );
+        });
+
       return (
         cleanKanji.includes(qLower) ||
         cleanKanji.includes(hira) ||
@@ -1184,7 +1196,8 @@ export async function searchLocalVocabulary(
         v.reading.includes(kata) ||
         itemRomaji.includes(qLower) ||
         v.meaning_es.toLowerCase().includes(qLower) ||
-        v.meaning_en.toLowerCase().includes(qLower)
+        v.meaning_en.toLowerCase().includes(qLower) ||
+        matchesDeconjugated
       );
     })
     .map((v) => {

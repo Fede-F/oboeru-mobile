@@ -9,6 +9,8 @@
     stripRubyTags,
     toRomajiText,
   } from "../lib/utils/japanese";
+  import { isVerb, getVerbGroup } from "../lib/utils/conjugator";
+  import VerbConjugationsModal from "./VerbConjugationsModal.svelte";
   import {
     hapticImpactLight,
     hapticImpactMedium,
@@ -35,12 +37,19 @@
   let showFurigana = $state(true);
   let isSpeaking = $state(false);
   let sessionCompletedCount = $state(0);
+  let isConjugationsModalOpen = $state(false);
 
   let frontWordContainer = $state<HTMLElement | null>(null);
   let backWordContainer = $state<HTMLElement | null>(null);
   let exampleJpContainer = $state<HTMLElement | null>(null);
 
   let currentCard = $derived<StudyCardItem | null>(cards[currentIndex] ?? null);
+
+  let verbInfo = $derived(
+    currentCard && isVerb(currentCard.part_of_speech, currentCard.kanji || currentCard.reading)
+      ? getVerbGroup(currentCard.part_of_speech, currentCard.kanji || currentCard.reading, currentCard.reading)
+      : null
+  );
 
   let romajiReading = $derived(
     currentCard ? toRomajiText(currentCard.reading) : "",
@@ -123,6 +132,7 @@
     const vocabId = currentCard.id;
     sessionCompletedCount += 1;
     isFlipped = false;
+    isConjugationsModalOpen = false;
 
     await onRateCard(vocabId, rating);
 
@@ -216,7 +226,7 @@
         >Tarjeta <strong class="text-white">{currentIndex + 1}</strong> de {cards.length}</span
       >
       <span class="text-white/80 font-semibold uppercase tracking-wider">
-        JLPT N{currentCard.jlpt_level} • {currentCard.part_of_speech}
+        JLPT N{currentCard.jlpt_level} • {verbInfo ? verbInfo.label : currentCard.part_of_speech}
       </span>
     </div>
 
@@ -317,6 +327,23 @@
               EN: {currentCard.meaning_en}
             </p>
           </div>
+
+          <!-- Si es un verbo, botón para desplegar tabla completa de conjugaciones -->
+          {#if verbInfo}
+            <div class="flex justify-center pt-0.5">
+              <button
+                type="button"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  isConjugationsModalOpen = true;
+                }}
+                class="touch-target px-3.5 py-1.5 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 active-press border border-emerald-400/40 text-emerald-300 text-xs font-bold flex items-center gap-1.5 shadow-sm"
+              >
+                <span>📖</span>
+                <span>{verbInfo.label} • Ver conjugaciones</span>
+              </button>
+            </div>
+          {/if}
 
           <!-- Oración de Ejemplo con botón de audio propio -->
           {#if currentCard.example_sentence}
@@ -457,5 +484,14 @@
         </button>
       </div>
     </div>
+  {/if}
+
+  <!-- Modal Bottom Sheet con la tabla completa de conjugaciones y audios -->
+  {#if currentCard && verbInfo}
+    <VerbConjugationsModal
+      isOpen={isConjugationsModalOpen}
+      word={currentCard}
+      onClose={() => (isConjugationsModalOpen = false)}
+    />
   {/if}
 </div>

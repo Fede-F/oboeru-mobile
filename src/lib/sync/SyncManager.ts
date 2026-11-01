@@ -27,6 +27,7 @@ import {
   upsertVocabularyBatch
 } from '../db/database';
 import { convertSearchQueryToKana, normalizeVocabularyRecord } from '../utils/japanese';
+import { getDeconjugatedCandidates } from '../utils/conjugator';
 
 export const OBOERU_API_BASE_URL = 'https://oboeru-api.planner.ar';
 export const MAX_SYNC_BATCH_SIZE = 200;
@@ -860,6 +861,33 @@ export class SyncManager {
 
       const json = await res.json();
       const rawItems: Array<Record<string, unknown>> = Array.isArray(json.data) ? json.data : [];
+
+      // Si la búsqueda directa no trajo resultados, intentar búsqueda inversa (deconjugación)
+      if (rawItems.length === 0 && trimmed) {
+        const candidates = getDeconjugatedCandidates(trimmed);
+        if (candidates.length > 0) {
+          const fallbackUrl = new URL(`${this.baseUrl}/api/v1/vocabulary`);
+          fallbackUrl.searchParams.set('limit', String(limit));
+          fallbackUrl.searchParams.set('q', candidates[0]);
+          fallbackUrl.searchParams.set('kana', candidates[0]);
+          if (jlptFilter !== null) fallbackUrl.searchParams.set('jlpt', String(jlptFilter));
+          try {
+            const fRes = await fetch(fallbackUrl.toString(), {
+              method: 'GET',
+              headers: { Accept: 'application/json' }
+            });
+            if (fRes.ok) {
+              const fJson = await fRes.json();
+              if (Array.isArray(fJson.data)) {
+                rawItems.push(...fJson.data);
+              }
+            }
+          } catch {
+            // Silencioso; continúa con el fallback local
+          }
+        }
+      }
+
       const reviews = await getAllReviews();
       const reviewMap = new Map<string, SrsReviewRecord>();
       for (const r of reviews) {

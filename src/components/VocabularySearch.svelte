@@ -13,6 +13,8 @@
     stripRubyTags,
     toRomajiText
   } from '../lib/utils/japanese';
+  import { isVerb, getVerbGroup } from '../lib/utils/conjugator';
+  import VerbConjugationsModal from './VerbConjugationsModal.svelte';
   import { hapticImpactLight, hapticSelection, hapticSuccess } from '../lib/haptics.js';
 
   interface Props {
@@ -29,6 +31,7 @@
   let customDecks = $state<UserDeckRecord[]>([]);
   let isSearching = $state(false);
   let activeWordForDeck = $state<(VocabularyRecord & { inStudy: boolean; state: string }) | null>(null);
+  let activeVerbForConjugation = $state<VocabularyRecord | null>(null);
 
   let kanaPreview = $derived(convertSearchQueryToKana(rawQuery));
 
@@ -212,6 +215,7 @@
   <section class="space-y-2.5">
     {#each results as item (item.id)}
       {@const deckCount = countCustomDecksForWord(item.id)}
+      {@const vGroup = isVerb(item.part_of_speech, item.kanji || item.reading) ? getVerbGroup(item.part_of_speech, item.kanji || item.reading, item.reading) : null}
       <div class="rounded-3xl bg-gradient-to-r from-[#182120] to-[#121720] border border-white/10 p-4 flex items-center justify-between gap-3">
         <div class="space-y-1 min-w-0">
           <div class="flex items-center gap-2 flex-wrap">
@@ -227,17 +231,40 @@
             <span class="px-2 py-0.5 rounded-full bg-black/40 border border-white/10 text-[10px] font-bold text-slate-300">
               N{item.jlpt_level}
             </span>
+            {#if vGroup}
+              <button
+                type="button"
+                onclick={() => (activeVerbForConjugation = item)}
+                title="Ver conjugaciones"
+                class="px-2.5 py-0.5 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-400/40 text-[10px] font-bold active-press flex items-center gap-1 shadow-sm"
+              >
+                <span>📖</span>
+                <span>{vGroup.label}</span>
+              </button>
+            {/if}
           </div>
 
           <p class="text-xs font-semibold text-slate-100 truncate">
             {item.meaning_es}
           </p>
           <p class="text-[11px] text-slate-400 truncate">
-            {item.meaning_en} • <span class="italic">{item.part_of_speech}</span>
+            {item.meaning_en} • <span class="italic">{vGroup ? vGroup.label : item.part_of_speech}</span>
           </p>
         </div>
 
         <div class="flex items-center gap-2 shrink-0">
+          {#if vGroup}
+            <button
+              type="button"
+              onclick={() => (activeVerbForConjugation = item)}
+              aria-label="Ver tabla de conjugaciones"
+              title="Ver conjugaciones"
+              class="touch-target w-11 h-11 rounded-2xl bg-[#171717] hover:bg-emerald-950/40 border border-emerald-400/30 text-emerald-300 flex items-center justify-center text-sm font-bold active-press shadow-sm"
+            >
+              📖
+            </button>
+          {/if}
+
           <button
             type="button"
             onclick={() => speakJapanese(stripRubyTags(item.kanji || item.reading))}
@@ -366,5 +393,14 @@
         </button>
       </div>
     </div>
+  {/if}
+
+  <!-- Modal de Conjugaciones del Verbo -->
+  {#if activeVerbForConjugation}
+    <VerbConjugationsModal
+      isOpen={Boolean(activeVerbForConjugation)}
+      word={activeVerbForConjugation}
+      onClose={() => (activeVerbForConjugation = null)}
+    />
   {/if}
 </div>
