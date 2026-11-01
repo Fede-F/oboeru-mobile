@@ -29,7 +29,7 @@
   }
 
   async function handlePlay(item: { id: string; reading: string; kanji: string }) {
-    await hapticImpactLight();
+    hapticImpactLight().catch(() => {});
     playingAudioId = item.id;
     try {
       await speakJapanese(item.reading || item.kanji);

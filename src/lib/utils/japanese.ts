@@ -162,59 +162,78 @@ export function stopJapaneseAudio(): void {
 }
 
 /**
- * Pronunciación de voz nativa japonesa (ja-JP) de alta calidad.
- * Utiliza reproducción directa de audio de Google TTS (formato audio/mpeg) y cuenta con
- * fallback automático a SpeechSynthesis del sistema/navegador en caso de operar sin conexión.
+ * Reproduce una URL de audio mediante HTML5 Audio asegurando inicio síncrono para cumplir con
+ * la política de Autoplay / User Gesture en WebViews de Android.
  */
-export function speakJapanese(text: string, rate = 0.92): Promise<void> {
+function playAudioStream(url: string, rate: number, timeoutMs = 4000): Promise<boolean> {
   return new Promise((resolve) => {
-    if (typeof window === 'undefined') {
-      resolve();
-      return;
-    }
-
-    const cleanText = stripRubyTags(text).trim();
-    if (!cleanText) {
-      resolve();
-      return;
-    }
-
-    stopJapaneseAudio();
-
-    // 1. Motor Primario: Audio stream nativo en japonés (sin requerir paquetes de voz instalados en Android)
     try {
-      const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=tw-ob&q=${encodeURIComponent(cleanText)}`;
-      const audio = new Audio(ttsUrl);
+      const audio = new Audio();
       activeAudioInstance = audio;
+      audio.preload = 'auto';
       audio.playbackRate = rate;
+      audio.src = url;
 
       let settled = false;
-      const onDone = () => {
+      let timer: ReturnType<typeof setTimeout> | null = null;
+
+      const cleanup = (success: boolean) => {
         if (!settled) {
           settled = true;
+          if (timer) clearTimeout(timer);
           if (activeAudioInstance === audio) {
             activeAudioInstance = null;
           }
-          resolve();
+          audio.onended = null;
+          audio.onerror = null;
+          resolve(success);
         }
       };
 
-      audio.onended = onDone;
-      audio.onerror = () => {
-        // Fallback a SpeechSynthesis si falla la carga del audio (ej. sin conexión a internet)
-        fallbackSpeechSynthesis(cleanText, rate).then(resolve);
-      };
+      timer = setTimeout(() => cleanup(false), timeoutMs);
+
+      audio.onended = () => cleanup(true);
+      audio.onerror = () => cleanup(false);
 
       const playPromise = audio.play();
       if (playPromise !== undefined) {
-        playPromise.catch(() => {
-          fallbackSpeechSynthesis(cleanText, rate).then(resolve);
-        });
+        playPromise.catch(() => cleanup(false));
       }
     } catch {
-      fallbackSpeechSynthesis(cleanText, rate).then(resolve);
+      resolve(false);
     }
   });
+}
+
+/**
+ * Pronunciación de voz nativa japonesa (ja-JP) de alta fidelidad.
+ * Estrategia multi-motor resiliente para móviles:
+ *  1. Google Translate TTS (audio/mpeg directo sin requerir paquetes de voz locales)
+ *  2. Youdao Japanese Audio Engine (fuente alternativa de pronunciación para diccionarios)
+ *  3. Fallback a SpeechSynthesis del sistema/navegador en caso de operar sin conexión
+ */
+export async function speakJapanese(text: string, rate = 0.95): Promise<void> {
+  if (typeof window === 'undefined') return;
+
+  const cleanText = stripRubyTags(text).trim();
+  if (!cleanText) return;
+
+  stopJapaneseAudio();
+
+  const encoded = encodeURIComponent(cleanText);
+
+  // 1. Motor Primario: Google Translate TTS (Voz japonesa natural de alta calidad)
+  const googleTtsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=tw-ob&q=${encoded}`;
+  const googleSuccess = await playAudioStream(googleTtsUrl, rate);
+  if (googleSuccess) return;
+
+  // 2. Motor Secundario: Youdao Japanese Audio (altamente tolerante en Android WebViews)
+  const youdaoTtsUrl = `https://dict.youdao.com/dictvoice?audio=${encoded}&le=jap`;
+  const youdaoSuccess = await playAudioStream(youdaoTtsUrl, rate);
+  if (youdaoSuccess) return;
+
+  // 3. Motor Terciario: SpeechSynthesis nativo del dispositivo (por si está offline)
+  await fallbackSpeechSynthesis(cleanText, rate);
 }
 
 function fallbackSpeechSynthesis(cleanText: string, rate: number): Promise<void> {

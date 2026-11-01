@@ -108,7 +108,7 @@
   async function handlePlayAudio(e: MouseEvent, textToSpeak?: string) {
     e.stopPropagation();
     if (!currentCard) return;
-    await hapticImpactLight();
+    hapticImpactLight().catch(() => {});
     isSpeaking = true;
     try {
       const target =

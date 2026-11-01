@@ -1,6 +1,6 @@
 {
   "name": "oboeru-mobile",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "Oboeru — Offline-first Japanese SRS Flashcards Mobile App (Astro v5, Svelte 5, Tailwind CSS v4, Capacitor v8, SQLite/IndexedDB & Capgo OTA)",
   "private": true,
   "type": "module",
