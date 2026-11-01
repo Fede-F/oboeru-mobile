@@ -103,8 +103,10 @@
     isSpeaking = true;
     try {
       const target =
-        textToSpeak || stripRubyTags(currentCard.kanji || currentCard.reading);
+        textToSpeak || currentCard.reading || stripRubyTags(currentCard.kanji);
       await speakJapanese(target);
+    } catch (err) {
+      console.warn('[Audio] Error al reproducir audio:', err);
     } finally {
       isSpeaking = false;
     }
@@ -168,21 +170,21 @@
         type="button"
         onclick={toggleFurigana}
         aria-pressed={showFurigana}
-        class="touch-target px-3.5 py-2 rounded-2xl text-xs font-bold active-press transition-colors flex items-center gap-1.5 {showFurigana
+        class="touch-target px-3 py-1.5 rounded-2xl text-xs font-bold active-press transition-colors flex items-center gap-1.5 {showFurigana
           ? 'bg-white text-slate-950'
-          : 'bg-[#171717] text-white/60'}"
+          : 'bg-[#171717] text-white/70'}"
       >
-        <span class="text-[11px] font-mono">振仮名</span>
-        <span>{showFurigana ? "ON" : "OFF"}</span>
+        <span class="text-[11px]">Furigana (Lectura)</span>
+        <span class="text-[10px] font-mono font-extrabold uppercase">{showFurigana ? "ON" : "OFF"}</span>
       </button>
 
       {#if currentCard}
         <button
           type="button"
           onclick={(e) => handlePlayAudio(e)}
-          aria-label="Escuchar pronunciación en japonés (TTS)"
-          class="touch-target w-11 h-11 rounded-2xl bg-[#171717] text-white active-press flex items-center justify-center {isSpeaking
-            ? 'bg-white/20'
+          aria-label="Escuchar pronunciación en japonés"
+          class="touch-target w-11 h-11 rounded-2xl bg-[#171717] text-white active-press flex items-center justify-center transition-colors {isSpeaking
+            ? 'bg-[#a7f3d0]/25 text-[#a7f3d0]'
             : ''}"
         >
           <svg
@@ -328,7 +330,7 @@
                 <button
                   type="button"
                   onclick={(e) => handlePlayAudio(e, parsedExample.jpPlain)}
-                  class="px-2 py-0.5 rounded-full bg-white/15 hover:bg-white/20 text-[10px] font-semibold text-white flex items-center gap-1"
+                  class="px-2.5 py-1 rounded-full bg-white/20 hover:bg-white/30 active-press text-[11px] font-semibold text-white flex items-center gap-1.5 shadow-sm"
                 >
                   <span>🔊</span>
                   <span>Escuchar</span>
@@ -350,19 +352,19 @@
             </div>
           {/if}
         </div>
-
-        <div class="text-center pt-1.5 border-t border-white/10">
-          <p class="text-[10px] text-white/70">
-            ¿Qué tan bien recordaste esta palabra?
-          </p>
-        </div>
       {/if}
     </div>
 
     <!-- ====================================================================== -->
-    <!-- BOTONES SRS INFERIORES: Pastillas oscuras sin bordes brillantes        -->
+    <!-- BOTONES SRS INFERIORES: Pregunta orientadora y botones de calificación -->
     <!-- ====================================================================== -->
-    <div class="pt-0.5">
+    <div class="pt-1 space-y-1.5">
+      {#if isFlipped}
+        <p class="text-center text-xs font-medium text-white/80 animate-fade-in">
+          ¿Qué tan bien recordaste esta palabra?
+        </p>
+      {/if}
+
       <div class="grid grid-cols-4 gap-2">
         <!-- 1: Again -->
         <button

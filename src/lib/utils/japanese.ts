@@ -137,10 +137,87 @@ export function splitExampleSentence(example: string | null): {
   };
 }
 
+let activeAudioInstance: HTMLAudioElement | null = null;
+
 /**
- * Pronunciación nativa japonesa (ja-JP) usando la API de Text-To-Speech del dispositivo / WebView
+ * Detiene cualquier audio japonés que se encuentre reproduciéndose actualmente
  */
-export function speakJapanese(text: string, rate = 0.88): Promise<void> {
+export function stopJapaneseAudio(): void {
+  if (activeAudioInstance) {
+    try {
+      activeAudioInstance.pause();
+      activeAudioInstance.currentTime = 0;
+    } catch {
+      // Ignorar errores de cancelación
+    }
+    activeAudioInstance = null;
+  }
+  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    try {
+      window.speechSynthesis.cancel();
+    } catch {
+      // Ignorar
+    }
+  }
+}
+
+/**
+ * Pronunciación de voz nativa japonesa (ja-JP) de alta calidad.
+ * Utiliza reproducción directa de audio de Google TTS (formato audio/mpeg) y cuenta con
+ * fallback automático a SpeechSynthesis del sistema/navegador en caso de operar sin conexión.
+ */
+export function speakJapanese(text: string, rate = 0.92): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined') {
+      resolve();
+      return;
+    }
+
+    const cleanText = stripRubyTags(text).trim();
+    if (!cleanText) {
+      resolve();
+      return;
+    }
+
+    stopJapaneseAudio();
+
+    // 1. Motor Primario: Audio stream nativo en japonés (sin requerir paquetes de voz instalados en Android)
+    try {
+      const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=ja&client=tw-ob&q=${encodeURIComponent(cleanText)}`;
+      const audio = new Audio(ttsUrl);
+      activeAudioInstance = audio;
+      audio.playbackRate = rate;
+
+      let settled = false;
+      const onDone = () => {
+        if (!settled) {
+          settled = true;
+          if (activeAudioInstance === audio) {
+            activeAudioInstance = null;
+          }
+          resolve();
+        }
+      };
+
+      audio.onended = onDone;
+      audio.onerror = () => {
+        // Fallback a SpeechSynthesis si falla la carga del audio (ej. sin conexión a internet)
+        fallbackSpeechSynthesis(cleanText, rate).then(resolve);
+      };
+
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(() => {
+          fallbackSpeechSynthesis(cleanText, rate).then(resolve);
+        });
+      }
+    } catch {
+      fallbackSpeechSynthesis(cleanText, rate).then(resolve);
+    }
+  });
+}
+
+function fallbackSpeechSynthesis(cleanText: string, rate: number): Promise<void> {
   return new Promise((resolve) => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
       resolve();
@@ -148,9 +225,6 @@ export function speakJapanese(text: string, rate = 0.88): Promise<void> {
     }
 
     try {
-      const cleanText = stripRubyTags(text);
-      window.speechSynthesis.cancel();
-
       const utterance = new SpeechSynthesisUtterance(cleanText);
       utterance.lang = 'ja-JP';
       utterance.rate = rate;
@@ -158,8 +232,9 @@ export function speakJapanese(text: string, rate = 0.88): Promise<void> {
 
       const voices = window.speechSynthesis.getVoices();
       const jpVoice =
-        voices.find((v) => v.lang === 'ja-JP' && v.localService) ||
+        voices.find((v) => v.lang === 'ja-JP' || v.lang === 'ja_JP') ||
         voices.find((v) => v.lang.startsWith('ja'));
+
       if (jpVoice) {
         utterance.voice = jpVoice;
       }
