@@ -185,6 +185,11 @@
           <span class="text-slate-400">Estado OTA:</span>
           <span class="capitalize text-slate-200 font-semibold">{otaState.status}</span>
         </div>
+        {#if otaState.error}
+          <div class="pt-1 text-[11px] text-rose-400 break-all">
+            Detalle: {otaState.error}
+          </div>
+        {/if}
       </div>
 
       <!-- Action Buttons -->

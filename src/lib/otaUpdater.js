@@ -4,54 +4,31 @@ import { App } from '@capacitor/app';
 import { writable } from 'svelte/store';
 
 /**
- * Build-time version fallback
+ * Build-time version injected from package.json via astro.config.mjs
  */
 const initialBuildVersion = typeof import.meta !== 'undefined' && import.meta.env?.PUBLIC_APP_VERSION
-  ? import.meta.env.PUBLIC_APP_VERSION
+  ? String(import.meta.env.PUBLIC_APP_VERSION).replace(/^v/i, '')
   : '1.0.0';
 
 /**
- * Reactive Svelte store containing the active version string (e.g. "1.0.0").
+ * Reactive Svelte store containing the active version string (e.g. "1.0.1").
  * Automatically updates when an OTA bundle is detected or applied.
- * Compatible with Svelte auto-subscriptions ($appVersion).
  */
 export const appVersion = writable(initialBuildVersion);
 
 /**
- * @typedef {Object} OtaConfig
- * @property {string} appName - Unique app identifier registered in the Cloudflare Worker
- * @property {string} [workerBaseUrl] - URL of the Cloudflare Worker
- * @property {boolean} [autoReload] - Whether to reload immediately when a new update is downloaded
- * @property {number} [timeoutMs] - Request timeout in milliseconds
- */
-
-/**
  * Default OTA configuration
- * Replace `DEFAULT_APP_NAME` or pass custom config in `initOta()`
+ * IMPORTANT: `DEFAULT_APP_NAME` must match the exact GitHub repository name
+ * so the Cloudflare Worker can resolve `GET /:repo/version` and `GET /:repo/download`.
  */
 export const DEFAULT_APP_NAME = 'oboeru-mobile';
 export const DEFAULT_WORKER_URL = 'https://mobile-ota-updater.fede-eagle.workers.dev';
 
-/**
- * Global OTA state subscriber for UI feedback (Svelte 5 runes / reactive stores)
- * @type {Set<(state: OtaState) => void>}
- */
 const subscribers = new Set();
 
-/**
- * @typedef {Object} OtaState
- * @property {'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error' | 'up-to-date'} status
- * @property {string | null} currentVersion
- * @property {string | null} availableVersion
- * @property {number} downloadProgress
- * @property {string | null} error
- * @property {boolean} updateReadyToApply
- */
-
-/** @type {OtaState} */
 let currentState = {
   status: 'idle',
-  currentVersion: null,
+  currentVersion: initialBuildVersion,
   availableVersion: null,
   downloadProgress: 0,
   error: null,
@@ -69,11 +46,6 @@ function updateState(partial) {
   });
 }
 
-/**
- * Subscribe to OTA status changes
- * @param {(state: OtaState) => void} callback
- * @returns {() => void} Unsubscribe function
- */
 export function subscribeOtaState(callback) {
   subscribers.add(callback);
   callback(currentState);
@@ -99,6 +71,7 @@ export async function notifyAppReady() {
 
   try {
     await CapacitorUpdater.notifyAppReady();
+    await getAppVersionInfo();
     console.log('[OTA] ✅ Capgo notifyAppReady() confirmed successfully. Rollback avoided.');
   } catch (error) {
     console.warn('[OTA] ⚠️ notifyAppReady failed or not in Capgo container:', error);
@@ -106,20 +79,13 @@ export async function notifyAppReady() {
 }
 
 /**
- * Resolves comprehensive version metadata (distinguishing Native vs OTA bundle vs Web)
- * @returns {Promise<{
- *   version: string,
- *   isOta: boolean,
- *   channel: 'ota' | 'native' | 'web',
- *   bundleId: string | null,
- *   nativeVersion?: string,
- *   formatted: string
- * }>}
+ * Resolves comprehensive version metadata (distinguishing Native 'builtin' vs OTA bundle vs Web)
  */
 export async function getAppVersionInfo() {
-  const buildVersion = import.meta.env?.PUBLIC_APP_VERSION || '1.0.0';
+  const buildVersion = (import.meta.env?.PUBLIC_APP_VERSION || '1.0.0').replace(/^v/i, '');
 
   if (!Capacitor.isNativePlatform()) {
+    appVersion.set(buildVersion);
     return {
       version: buildVersion,
       isOta: false,
@@ -132,25 +98,40 @@ export async function getAppVersionInfo() {
   let nativeVersion = buildVersion;
   try {
     const appInfo = await App.getInfo();
-    if (appInfo && appInfo.version) {
-      nativeVersion = appInfo.version;
+    if (appInfo?.version && appInfo.version !== '1.0') {
+      nativeVersion = appInfo.version.replace(/^v/i, '');
     }
   } catch {
     // Keep buildVersion fallback
   }
 
-  let resolvedInfo;
+  let resolvedInfo = null;
 
   try {
     const current = await CapacitorUpdater.current();
-    if (current && current.bundle && current.bundle.id && current.bundle.id !== 'default') {
+    const bundleId = current?.bundle?.id;
+    const bundleVer = current?.bundle?.version;
+
+    // In @capgo/capacitor-updater v8, the factory APK bundle reports id='builtin' and version='builtin'
+    const isBuiltinBundle =
+      !bundleId ||
+      bundleId === 'builtin' ||
+      bundleId === 'default' ||
+      bundleVer === 'builtin';
+
+    if (!isBuiltinBundle) {
+      const cleanOtaVersion =
+        bundleVer && bundleVer !== 'builtin'
+          ? String(bundleVer).replace(/^v/i, '')
+          : buildVersion;
+
       resolvedInfo = {
-        version: current.bundle.id,
+        version: cleanOtaVersion,
         isOta: true,
         channel: 'ota',
-        bundleId: current.bundle.id,
+        bundleId,
         nativeVersion,
-        formatted: `v${current.bundle.id} (OTA)`
+        formatted: `v${cleanOtaVersion} (OTA)`
       };
     }
   } catch {
@@ -159,43 +140,31 @@ export async function getAppVersionInfo() {
 
   if (!resolvedInfo) {
     resolvedInfo = {
-      version: nativeVersion,
+      version: buildVersion,
       isOta: false,
       channel: 'native',
-      bundleId: 'default',
+      bundleId: 'builtin',
       nativeVersion,
-      formatted: `v${nativeVersion} (Base)`
+      formatted: `v${buildVersion} (Base)`
     };
   }
 
-  // Synchronize reactive Svelte store
   appVersion.set(resolvedInfo.version);
   return resolvedInfo;
 }
 
-/**
- * Manually forces a refresh of appVersion store
- * @returns {Promise<string>}
- */
 export async function refreshAppVersion() {
   const info = await getAppVersionInfo();
   return info.version;
 }
 
-/**
- * Resolves current running app version string
- * @returns {Promise<string>}
- */
 export async function getCurrentAppVersion() {
   const info = await getAppVersionInfo();
   return info.version;
 }
 
 /**
- * Check for updates against the Cloudflare Worker endpoint
- * 
- * @param {OtaConfig} [config]
- * @returns {Promise<{ updateAvailable: boolean, version?: string, bundleUrl?: string }>}
+ * Check for updates against the Cloudflare Worker endpoint (GET /:repo/version)
  */
 export async function checkForOtaUpdates(config = {}) {
   const appName = config.appName || DEFAULT_APP_NAME;
@@ -204,19 +173,17 @@ export async function checkForOtaUpdates(config = {}) {
   const timeoutMs = config.timeoutMs ?? 15000;
 
   if (!Capacitor.isNativePlatform()) {
-    console.log(`[OTA] Web preview mode. Simulating OTA check for app "${appName}"...`);
-    updateState({ status: 'up-to-date', currentVersion: '1.0.0-web' });
+    const currentVersion = await getCurrentAppVersion();
+    updateState({ status: 'up-to-date', currentVersion });
     return { updateAvailable: false };
   }
 
   try {
     updateState({ status: 'checking', error: null });
     const currentVersion = await getCurrentAppVersion();
-    updateState({ currentVersion });
+    const currentClean = String(currentVersion).replace(/^v/i, '');
+    updateState({ currentVersion: currentClean });
 
-    console.log(`[OTA] Checking updates for "${appName}" (current: v${currentVersion})...`);
-
-    // Multi-tenant route matching Cloudflare Worker: GET /:repo/version
     const endpoint = `${workerBaseUrl}/${encodeURIComponent(appName)}/version`;
 
     const controller = new AbortController();
@@ -230,43 +197,35 @@ export async function checkForOtaUpdates(config = {}) {
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      throw new Error(`Worker responded with HTTP ${response.status}: ${response.statusText}`);
+      throw new Error(`HTTP ${response.status} en ${endpoint}`);
     }
 
     const data = await response.json();
-    console.log('[OTA] Worker response:', data);
-
-    // Worker returns:
-    // { version: 'v1.0.1', published_at: '...', downloadUrl: 'https://.../oboeru-mobile/download' }
     const rawVersion = data.version || data.latestVersion || '';
     const latestVersion = String(rawVersion).replace(/^v/i, '');
-    const currentClean = String(currentVersion).replace(/^v/i, '');
     const bundleUrl = data.downloadUrl || data.url || data.bundleUrl;
 
     if (!latestVersion || !bundleUrl || latestVersion === currentClean) {
-      console.log(`[OTA] App is up to date (v${currentClean}).`);
       updateState({ status: 'up-to-date', availableVersion: latestVersion || currentClean });
       return { updateAvailable: false, version: currentClean };
     }
 
-    console.log(`[OTA] 🚀 New update found: v${latestVersion}. Starting download...`);
     updateState({
       status: 'downloading',
       availableVersion: latestVersion,
       downloadProgress: 0
     });
 
-    // Download bundle via Capgo CapacitorUpdater
-    const bundle = await CapacitorUpdater.download({
+    const downloadOpts = {
       url: bundleUrl,
-      version: latestVersion,
-      checksum: data.checksum
-    });
+      version: latestVersion
+    };
+    if (data.checksum) {
+      downloadOpts.checksum = data.checksum;
+    }
 
-    console.log(`[OTA] Download completed for v${latestVersion}. Setting active bundle...`, bundle);
-
-    // Set bundle as active
-    await CapacitorUpdater.set({ id: bundle.id || latestVersion });
+    const bundle = await CapacitorUpdater.download(downloadOpts);
+    await CapacitorUpdater.set(bundle);
 
     updateState({
       status: 'ready',
@@ -276,10 +235,7 @@ export async function checkForOtaUpdates(config = {}) {
     });
 
     if (autoReload) {
-      console.log('[OTA] AutoReload enabled. Reloading app now...');
       await reloadApp();
-    } else {
-      console.log('[OTA] Update staged. It will take effect on next launch or when reloadApp() is called.');
     }
 
     return {
@@ -287,7 +243,6 @@ export async function checkForOtaUpdates(config = {}) {
       version: latestVersion,
       bundleUrl
     };
-
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error('[OTA] ❌ Check/Download failed:', errorMsg);
@@ -299,9 +254,6 @@ export async function checkForOtaUpdates(config = {}) {
   }
 }
 
-/**
- * Immediately reloads the application to activate the staged bundle
- */
 export async function reloadApp() {
   if (!Capacitor.isNativePlatform()) {
     window.location.reload();
@@ -310,18 +262,13 @@ export async function reloadApp() {
 
   try {
     await CapacitorUpdater.reload();
-  } catch (error) {
-    console.warn('[OTA] Capgo reload() failed, falling back to window.location.reload():', error);
+  } catch {
     window.location.reload();
   }
 }
 
-/**
- * Resets application back to the factory native binary bundle
- */
 export async function resetToNativeBundle() {
   if (!Capacitor.isNativePlatform()) {
-    console.log('[OTA] Web platform: Reset simulation.');
     return;
   }
 
