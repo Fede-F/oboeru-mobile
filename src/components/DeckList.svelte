@@ -195,6 +195,54 @@
     return filtered;
   });
 
+  // Carrusel Horizontal: Agrupar mazos de a 4 por página (grilla 2x2 en cada slide)
+  let carouselEl = $state<HTMLElement | null>(null);
+  let currentPage = $state(0);
+
+  type CarouselItem = { type: 'deck'; deck: DeckSummary } | { type: 'create' };
+
+  let deckPages = $derived.by(() => {
+    const items: CarouselItem[] = [
+      ...sortedDecks.map((deck) => ({ type: 'deck' as const, deck })),
+      { type: 'create' as const }
+    ];
+    const pages: CarouselItem[][] = [];
+    for (let i = 0; i < items.length; i += 4) {
+      pages.push(items.slice(i, i + 4));
+    }
+    return pages;
+  });
+
+  function handleCarouselScroll() {
+    if (!carouselEl) return;
+    const scrollLeft = carouselEl.scrollLeft;
+    const width = carouselEl.clientWidth;
+    if (width > 0) {
+      const page = Math.round(scrollLeft / width);
+      if (page !== currentPage && page >= 0 && page < deckPages.length) {
+        currentPage = page;
+      }
+    }
+  }
+
+  function scrollToPage(pageIndex: number) {
+    if (!carouselEl) return;
+    carouselEl.scrollTo({
+      left: pageIndex * carouselEl.clientWidth,
+      behavior: 'smooth'
+    });
+    currentPage = pageIndex;
+  }
+
+  $effect(() => {
+    // Al alternar filtros u ordenamiento, resetear al primer slide
+    const _ = [ownershipFilter, sortBy, sortDirection];
+    if (carouselEl) {
+      carouselEl.scrollTo({ left: 0, behavior: 'instant' });
+      currentPage = 0;
+    }
+  });
+
   function formatDeckCreatedDate(isoDate?: string): string {
     if (!isoDate) return '';
     const d = new Date(isoDate);
@@ -313,7 +361,7 @@
             Mazos Disponibles ({sortedDecks.length})
           </h3>
           <span class="text-[10px] text-white/50">
-            Mantené presionado para opciones
+            Deslizá para ver más • Mantené presionado para opciones
           </span>
         </div>
 
@@ -368,124 +416,157 @@
       </div>
     </div>
 
-    <div class="max-h-[416px] overflow-y-auto pr-1 grid grid-cols-2 gap-3.5 items-stretch">
-      {#each sortedDecks as deck (deck.id)}
-        <button
-          type="button"
-          onpointerdown={(e) => handlePointerDown(e, deck)}
-          onpointermove={handlePointerMove}
-          onpointerup={handlePointerUpOrLeave}
-          onpointerleave={handlePointerUpOrLeave}
-          oncontextmenu={(e) => e.preventDefault()}
-          onclick={() => handleCardClick(deck)}
-          class="w-full h-[196px] text-left rounded-[26px] p-4 shadow-lg active-press transition-all flex flex-col justify-between select-none {getDeckCardStyle(deck.accentVariant)}"
-        >
-          <!-- Cabecera: Nombre del mazo + Fecha chiquita (sin 3 puntos) -->
-          <div class="flex items-start justify-between gap-2">
-            <div class="min-w-0">
-              <h4 class="text-sm font-bold text-white leading-tight line-clamp-1">
-                {deck.title}
-              </h4>
-              {#if deck.createdAt}
-                <span class="block text-[10px] text-white/60 mt-0.5 font-medium">
-                  {formatDeckCreatedDate(deck.createdAt)}
-                </span>
-              {/if}
-            </div>
-          </div>
+    <!-- Carrusel Horizontal de Mazos Deslizable de Derecha a Izquierda (Snap) -->
+    <div
+      bind:this={carouselEl}
+      onscroll={handleCarouselScroll}
+      class="flex w-full overflow-x-auto snap-x snap-mandatory scroll-smooth pb-1"
+      style="scrollbar-width: none; -ms-overflow-style: none; -webkit-overflow-scrolling: touch;"
+    >
+      {#each deckPages as page, pageIndex (pageIndex)}
+        <div class="w-full shrink-0 snap-center grid grid-cols-2 gap-3.5 items-stretch px-0.5">
+          {#each page as item (item.type === 'deck' ? item.deck.id : 'create-deck-card')}
+            {#if item.type === 'deck'}
+              {@const deck = item.deck}
+              <button
+                type="button"
+                onpointerdown={(e) => handlePointerDown(e, deck)}
+                onpointermove={handlePointerMove}
+                onpointerup={handlePointerUpOrLeave}
+                onpointerleave={handlePointerUpOrLeave}
+                oncontextmenu={(e) => e.preventDefault()}
+                onclick={() => handleCardClick(deck)}
+                class="w-full h-[196px] text-left rounded-[26px] p-4 shadow-lg active-press transition-all flex flex-col justify-between select-none {getDeckCardStyle(deck.accentVariant)}"
+              >
+                <!-- Cabecera: Nombre del mazo + Fecha chiquita (sin 3 puntos) -->
+                <div class="flex items-start justify-between gap-2">
+                  <div class="min-w-0">
+                    <h4 class="text-sm font-bold text-white leading-tight line-clamp-1">
+                      {deck.title}
+                    </h4>
+                    {#if deck.createdAt}
+                      <span class="block text-[10px] text-white/60 mt-0.5 font-medium">
+                        {formatDeckCreatedDate(deck.createdAt)}
+                      </span>
+                    {/if}
+                  </div>
+                </div>
 
-          <!-- Cuerpo Central: Total de Palabras y Para Hoy + Barra de Progreso Sutil -->
-          <div class="my-auto space-y-3">
-            <div class="flex items-end justify-between">
-              <div>
-                <span class="text-2xl font-extrabold text-white leading-none block">
-                  {deck.totalCards}
-                </span>
-                <span class="text-[10px] text-white/60 font-medium block mt-0.5">
-                  Palabras
-                </span>
-              </div>
+                <!-- Cuerpo Central: Total de Palabras y Para Hoy + Barra de Progreso Sutil -->
+                <div class="my-auto space-y-3">
+                  <div class="flex items-end justify-between">
+                    <div>
+                      <span class="text-2xl font-extrabold text-white leading-none block">
+                        {deck.totalCards}
+                      </span>
+                      <span class="text-[10px] text-white/60 font-medium block mt-0.5">
+                        Palabras
+                      </span>
+                    </div>
 
-              <div class="text-right">
-                <span class="text-lg font-extrabold text-white leading-none block">
-                  {deck.dueCards}
-                </span>
-                <span class="text-[10px] text-white/60 font-medium block mt-0.5">
-                  Para hoy
-                </span>
-              </div>
-            </div>
+                    <div class="text-right">
+                      <span class="text-lg font-extrabold text-white leading-none block">
+                        {deck.dueCards}
+                      </span>
+                      <span class="text-[10px] text-white/60 font-medium block mt-0.5">
+                        Para hoy
+                      </span>
+                    </div>
+                  </div>
 
-            <!-- Barra de Progreso Sutil integrada con el color del mazo -->
-            <div class="space-y-1">
-              <div class="w-full h-1.5 rounded-full bg-black/25 overflow-hidden">
-                <div
-                  class="h-full rounded-full transition-all duration-500 {getDeckProgressBarColor(deck.accentVariant)}"
-                  style="width: {getDeckProgressPercent(deck)}%"
-                ></div>
-              </div>
-              <div class="flex items-center justify-between text-[9px] text-white/50 font-medium">
-                <span>Progreso</span>
-                <span>{getDeckProgressPercent(deck)}%</span>
-              </div>
-            </div>
-          </div>
+                  <!-- Barra de Progreso Sutil integrada con el color del mazo -->
+                  <div class="space-y-1">
+                    <div class="w-full h-1.5 rounded-full bg-black/25 overflow-hidden">
+                      <div
+                        class="h-full rounded-full transition-all duration-500 {getDeckProgressBarColor(deck.accentVariant)}"
+                        style="width: {getDeckProgressPercent(deck)}%"
+                      ></div>
+                    </div>
+                    <div class="flex items-center justify-between text-[9px] text-white/50 font-medium">
+                      <span>Progreso</span>
+                      <span>{getDeckProgressPercent(deck)}%</span>
+                    </div>
+                  </div>
+                </div>
 
-          <!-- Pie del Mazo: Etiqueta JP | ES y botón circular mate (solo en mazos propios) -->
-          <div class="flex items-center justify-between pt-1">
-            <span class="text-[10px] font-bold uppercase tracking-wider text-white/55 truncate">
-              {deck.isCustom ? 'JP | MÍO' : 'JP | ES'}
-            </span>
+                <!-- Pie del Mazo: Etiqueta JP | ES y botón circular mate (solo en mazos propios) -->
+                <div class="flex items-center justify-between pt-1">
+                  <span class="text-[10px] font-bold uppercase tracking-wider text-white/55 truncate">
+                    {deck.isCustom ? 'JP | MÍO' : 'JP | ES'}
+                  </span>
 
-            {#if deck.isCustom}
-              <div class="w-7 h-7 rounded-full bg-white/15 flex items-center justify-center text-white">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                </svg>
-              </div>
+                  {#if deck.isCustom}
+                    <div class="w-7 h-7 rounded-full bg-white/15 flex items-center justify-center text-white">
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                      </svg>
+                    </div>
+                  {/if}
+                </div>
+              </button>
+            {:else}
+              <!-- Card: Crear un nuevo mazo personalizado -->
+              <button
+                type="button"
+                onclick={handleCreateNew}
+                class="w-full h-[196px] text-left rounded-[26px] p-4 bg-[#171c20] hover:bg-[#1e252a] shadow-lg active-press transition-all flex flex-col justify-between group select-none"
+              >
+                <div class="flex items-start justify-between">
+                  <div>
+                    <h4 class="text-sm font-bold text-white leading-tight">
+                      Crear mazo
+                    </h4>
+                    <span class="block text-[10px] text-white/60 mt-0.5 font-medium">
+                      Personalizado
+                    </span>
+                  </div>
+                </div>
+
+                <div class="my-1">
+                  <span class="text-2xl font-extrabold text-white leading-none block">
+                    + Nuevo
+                  </span>
+                  <p class="text-[11px] text-white/60 mt-1 leading-snug">
+                    Elegí tus propias palabras del diccionario
+                  </p>
+                </div>
+
+                <div class="flex items-center justify-between pt-1">
+                  <span class="text-[10px] font-bold uppercase tracking-wider text-white/55">
+                    JP | MÍO
+                  </span>
+                  <div class="w-7 h-7 rounded-full bg-white/15 flex items-center justify-center text-white">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                    </svg>
+                  </div>
+                </div>
+              </button>
             {/if}
-          </div>
-        </button>
+          {/each}
+        </div>
       {/each}
-
-      <!-- Último elemento del listado: Crear un nuevo mazo personalizado -->
-      <button
-        type="button"
-        onclick={handleCreateNew}
-        class="w-full h-[196px] text-left rounded-[26px] p-4 bg-[#171c20] hover:bg-[#1e252a] shadow-lg active-press transition-all flex flex-col justify-between group select-none"
-      >
-        <div class="flex items-start justify-between">
-          <div>
-            <h4 class="text-sm font-bold text-white leading-tight">
-              Crear mazo
-            </h4>
-            <span class="block text-[10px] text-white/60 mt-0.5 font-medium">
-              Personalizado
-            </span>
-          </div>
-        </div>
-
-        <div class="my-1">
-          <span class="text-2xl font-extrabold text-white leading-none block">
-            + Nuevo
-          </span>
-          <p class="text-[11px] text-white/60 mt-1 leading-snug">
-            Elegí tus propias palabras del diccionario
-          </p>
-        </div>
-
-        <div class="flex items-center justify-between pt-1">
-          <span class="text-[10px] font-bold uppercase tracking-wider text-white/55">
-            JP | MÍO
-          </span>
-          <div class="w-7 h-7 rounded-full bg-white/15 flex items-center justify-center text-white">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-            </svg>
-          </div>
-        </div>
-      </button>
     </div>
+
+    <!-- Indicador de Páginas con Puntos (Dots de Carrusel) -->
+    {#if deckPages.length > 1}
+      <div class="flex items-center justify-center gap-1.5 pt-1 pb-0.5">
+        {#each deckPages as _, idx}
+          <button
+            type="button"
+            onclick={() => scrollToPage(idx)}
+            aria-label="Ir a página {idx + 1}"
+            class="touch-target h-6 flex items-center justify-center px-1"
+          >
+            <span
+              class="h-1.5 rounded-full transition-all duration-300 {currentPage === idx
+                ? 'w-6 bg-[#a7f3d0]'
+                : 'w-1.5 bg-white/20 hover:bg-white/40'}"
+            ></span>
+          </button>
+        {/each}
+      </div>
+    {/if}
   </section>
 
   <!-- Mapa de Calor (Heatmap) estilo GitHub -->
