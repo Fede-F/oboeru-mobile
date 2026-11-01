@@ -23,6 +23,7 @@
     onOpenCreateDeck: () => void;
     onDeckDeleted?: () => void | Promise<void>;
     onDeckDuplicated?: () => void | Promise<void>;
+    onEditDeck?: (deck: DeckSummary) => void;
   }
 
   let {
@@ -35,7 +36,8 @@
     onOpenSearch,
     onOpenCreateDeck,
     onDeckDeleted,
-    onDeckDuplicated
+    onDeckDuplicated,
+    onEditDeck
   }: Props = $props();
 
   type SortCriterion = 'created' | 'name' | 'due' | 'size';
@@ -115,6 +117,14 @@
     showActionMenu = false;
     showDeleteConfirm = false;
     targetDeck = null;
+  }
+
+  async function handleEditDeck() {
+    if (!targetDeck || !onEditDeck) return;
+    await hapticImpactLight();
+    const deckToEdit = targetDeck;
+    closeMenu();
+    onEditDeck(deckToEdit);
   }
 
   async function handleDuplicateDeck() {
@@ -611,53 +621,80 @@
           </button>
         </div>
 
-        <!-- Opciones del Menú -->
+        <!-- Opciones del Menú (Alto y Ancho emparejados simétricamente) -->
         <div class="space-y-2">
-          <!-- 1. Duplicar Mazo (disponible para todos: por defecto y propios) -->
+          <!-- 1. Editar Mazo (solo disponible para mazos propios "Míos") -->
+          {#if targetDeck.isCustom}
+            <button
+              type="button"
+              onclick={handleEditDeck}
+              class="touch-target w-full min-h-[64px] p-3.5 rounded-2xl bg-white/5 hover:bg-white/10 text-left active-press flex items-center justify-between transition-colors border border-transparent hover:border-white/10"
+            >
+              <div class="flex items-center gap-3 min-w-0">
+                <div class="w-10 h-10 rounded-xl bg-sky-500/15 text-sky-400 flex items-center justify-center text-lg shrink-0">
+                  ✏️
+                </div>
+                <div class="min-w-0">
+                  <span class="text-sm font-bold text-white block truncate">Editar mazo</span>
+                  <span class="text-[11px] text-white/60 block truncate">Ver y quitar palabras de este mazo</span>
+                </div>
+              </div>
+
+              <span class="text-white/40 text-base font-bold shrink-0 ml-2">›</span>
+            </button>
+          {/if}
+
+          <!-- 2. Duplicar Mazo (disponible para todos: por defecto y propios) -->
           <button
             type="button"
             onclick={handleDuplicateDeck}
             disabled={isDuplicating}
-            class="touch-target w-full p-3.5 rounded-2xl bg-white/5 hover:bg-white/10 text-left active-press flex items-center justify-between transition-colors disabled:opacity-50"
+            class="touch-target w-full min-h-[64px] p-3.5 rounded-2xl bg-white/5 hover:bg-white/10 text-left active-press flex items-center justify-between transition-colors disabled:opacity-50 border border-transparent hover:border-white/10"
           >
-            <div class="flex items-center gap-3">
-              <div class="w-9 h-9 rounded-xl bg-[#a7f3d0]/15 text-[#a7f3d0] flex items-center justify-center text-base">
+            <div class="flex items-center gap-3 min-w-0">
+              <div class="w-10 h-10 rounded-xl bg-[#a7f3d0]/15 text-[#a7f3d0] flex items-center justify-center text-lg shrink-0">
                 📑
               </div>
-              <div>
-                <span class="text-sm font-bold text-white block">Duplicar mazo</span>
-                <span class="text-[11px] text-white/60 block">Crea una copia editable en tus mazos ("Míos")</span>
+              <div class="min-w-0">
+                <span class="text-sm font-bold text-white block truncate">Duplicar mazo</span>
+                <span class="text-[11px] text-white/60 block truncate">Crea una copia editable en tus mazos ("Míos")</span>
               </div>
             </div>
 
             {#if isDuplicating}
-              <div class="w-4 h-4 border-2 border-[#a7f3d0] border-t-transparent rounded-full animate-spin"></div>
+              <div class="w-4 h-4 border-2 border-[#a7f3d0] border-t-transparent rounded-full animate-spin shrink-0 ml-2"></div>
+            {:else}
+              <span class="text-white/40 text-base font-bold shrink-0 ml-2">›</span>
             {/if}
           </button>
 
-          <!-- 2. Eliminar Mazo (solo disponible para mazos propios) -->
+          <!-- 3. Eliminar Mazo (solo disponible para mazos propios) -->
           {#if targetDeck.isCustom}
             <button
               type="button"
               onclick={openDeleteConfirm}
-              class="touch-target w-full p-3.5 rounded-2xl bg-rose-500/10 hover:bg-rose-500/15 text-left active-press flex items-center gap-3 transition-colors"
+              class="touch-target w-full min-h-[64px] p-3.5 rounded-2xl bg-rose-500/10 hover:bg-rose-500/15 text-left active-press flex items-center justify-between transition-colors border border-rose-500/20"
             >
-              <div class="w-9 h-9 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center text-base">
-                🗑️
+              <div class="flex items-center gap-3 min-w-0">
+                <div class="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center text-lg shrink-0">
+                  🗑️
+                </div>
+                <div class="min-w-0">
+                  <span class="text-sm font-bold text-rose-300 block truncate">Eliminar mazo</span>
+                  <span class="text-[11px] text-rose-200/60 block truncate">Borra este mazo sin perder tus repasos</span>
+                </div>
               </div>
-              <div>
-                <span class="text-sm font-bold text-rose-300 block">Eliminar mazo</span>
-                <span class="text-[11px] text-rose-200/60 block">Borra este mazo sin perder tus repasos del diccionario</span>
-              </div>
+
+              <span class="text-rose-400/40 text-base font-bold shrink-0 ml-2">›</span>
             </button>
           {/if}
         </div>
 
-        <!-- Botón Cancelar -->
+        <!-- Botón Cancelar con altura y estilo equilibrado -->
         <button
           type="button"
           onclick={closeMenu}
-          class="touch-target w-full py-2.5 rounded-2xl bg-white/5 hover:bg-white/10 text-white/70 font-semibold text-xs active-press text-center mt-1"
+          class="touch-target w-full h-11 rounded-2xl bg-white/5 hover:bg-white/10 text-white/70 font-semibold text-xs active-press flex items-center justify-center text-center mt-2"
         >
           Cerrar
         </button>

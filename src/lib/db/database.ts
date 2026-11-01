@@ -874,6 +874,68 @@ export async function toggleWordInCustomUserDeck(
 }
 
 /**
+ * Obtiene la lista completa de palabras (VocabularyRecord) asociadas a un mazo específico.
+ */
+export async function getWordsForDeck(deckId: string): Promise<VocabularyRecord[]> {
+  const [allDecks, allVocab] = await Promise.all([getAllUserDecks(), getAllVocabulary()]);
+  const target = allDecks.find((d) => d.id === deckId && !d.deleted_at);
+  if (!target || !Array.isArray(target.vocabulary_ids)) return [];
+
+  const vocabMap = new Map<string, VocabularyRecord>();
+  for (const v of allVocab) {
+    vocabMap.set(v.id, v);
+  }
+
+  const words: VocabularyRecord[] = [];
+  for (const id of target.vocabulary_ids) {
+    const word = vocabMap.get(id);
+    if (word) words.push(word);
+  }
+  return words;
+}
+
+/**
+ * Quita una palabra de un mazo personalizado propio.
+ * Marca el mazo como dirty=true con updated_at actualizado para su posterior o inmediata sincronización.
+ */
+export async function removeWordFromCustomDeck(
+  deckId: string,
+  wordId: string
+): Promise<UserDeckRecord> {
+  if (SYSTEM_DEFAULT_DECK_IDS.has(deckId)) {
+    throw new Error('Los mazos por defecto no se pueden modificar.');
+  }
+
+  const db = await openLocalDb();
+  const allDecks = await getAllUserDecks();
+  const target = allDecks.find((d) => d.id === deckId && !d.deleted_at);
+  if (!target) {
+    throw new Error('Mazo no encontrado o ya eliminado.');
+  }
+
+  const nowIso = new Date().toISOString();
+  const currentIds = Array.isArray(target.vocabulary_ids) ? [...target.vocabulary_ids] : [];
+  const nextVocabIds = currentIds.filter((id) => id !== wordId);
+
+  const updatedDeck: UserDeckRecord = {
+    ...target,
+    vocabulary_ids: nextVocabIds,
+    updated_at: nowIso,
+    dirty: true
+  };
+
+  const tx = db.transaction('user_decks', 'readwrite');
+  tx.objectStore('user_decks').put(updatedDeck);
+
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+
+  return updatedDeck;
+}
+
+/**
  * Registra una calificación SRS en la base de datos local (100% Offline-First),
  * actualiza updated_at para resolución LWW, marca dirty=true y suma al Heatmap diario.
  */

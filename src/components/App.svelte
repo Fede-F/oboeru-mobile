@@ -10,6 +10,7 @@
   import AuthScreen from './AuthScreen.svelte';
   import DeckList from './DeckList.svelte';
   import CreateDeckScreen from './CreateDeckScreen.svelte';
+  import EditDeckScreen from './EditDeckScreen.svelte';
   import StudyCard from './StudyCard.svelte';
   import VocabularySearch from './VocabularySearch.svelte';
   import SyncPanel from './SyncPanel.svelte';
@@ -23,7 +24,7 @@
   import type { DeckSummary, ReviewRating, StudyCardItem } from '../lib/db/schema';
   import { syncManager, syncState, type SyncStatusState } from '../lib/sync/SyncManager';
 
-  type ActiveTab = 'dashboard' | 'create-deck' | 'study' | 'search' | 'sync';
+  type ActiveTab = 'dashboard' | 'create-deck' | 'edit-deck' | 'study' | 'search' | 'sync';
 
   // Svelte 5 Runes
   let currentTab = $state<ActiveTab>('dashboard');
@@ -32,6 +33,7 @@
   let allCards = $state<StudyCardItem[]>([]);
   let selectedDeckTitle = $state('JLPT N5 Esencial');
   let activeStudyCards = $state<StudyCardItem[]>([]);
+  let editingDeck = $state<DeckSummary | null>(null);
 
   let heatmapCells = $state<HeatmapDayCell[]>([]);
   let totalReviews = $state(0);
@@ -314,12 +316,25 @@
             await refreshLocalData();
             syncManager.syncNow().catch((e) => console.warn('[Sync] Post-duplicate sync error:', e));
           }}
+          onEditDeck={(deck) => {
+            editingDeck = deck;
+            currentTab = 'edit-deck';
+          }}
         />
       {:else if currentTab === 'create-deck'}
         <CreateDeckScreen
           onCancel={() => switchTab('dashboard')}
           onDeckCreated={async () => {
             await refreshLocalData();
+            currentTab = 'dashboard';
+          }}
+        />
+      {:else if currentTab === 'edit-deck' && editingDeck}
+        <EditDeckScreen
+          deck={editingDeck}
+          onBack={async () => {
+            await refreshLocalData();
+            editingDeck = null;
             currentTab = 'dashboard';
           }}
         />
@@ -394,7 +409,7 @@
         <button
           type="button"
           onclick={() => switchTab('dashboard')}
-          class="touch-target flex flex-col items-center justify-center gap-1 transition-colors {currentTab === 'dashboard' || currentTab === 'create-deck' || currentTab === 'study'
+          class="touch-target flex flex-col items-center justify-center gap-1 transition-colors {currentTab === 'dashboard' || currentTab === 'create-deck' || currentTab === 'edit-deck' || currentTab === 'study'
             ? 'text-[#a7f3d0]'
             : 'text-slate-400 hover:text-slate-200'}"
         >
