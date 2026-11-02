@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ReviewRating, StudyCardItem } from "../lib/db/schema";
+  import type { ReviewRating, SrsReviewRecord, StudyCardItem } from "../lib/db/schema";
   import { getSrsButtonPreviews } from "../lib/srs/sm2";
   import {
     ensureRubyMarkup,
@@ -21,23 +21,40 @@
   interface Props {
     deckTitle: string;
     cards: StudyCardItem[];
+    initialIndex?: number;
+    initialCompletedCount?: number;
     onRateCard: (vocabularyId: string, rating: ReviewRating) => Promise<void>;
+    onUndoCard?: (vocabularyId: string, previousReview: SrsReviewRecord | null) => Promise<void>;
+    onSessionProgress?: (progress: { currentIndex: number; sessionCompletedCount: number; totalCards: number }) => void;
+    onSessionFinished?: () => void;
     onExitStudy: () => void;
   }
 
   let {
     deckTitle = "Estudio SRS",
     cards = [],
+    initialIndex = 0,
+    initialCompletedCount = 0,
     onRateCard,
+    onUndoCard,
+    onSessionProgress,
+    onSessionFinished,
     onExitStudy,
   }: Props = $props();
 
-  let currentIndex = $state(0);
+  let currentIndex = $state(initialIndex);
   let isFlipped = $state(false);
   let showFurigana = $state(true);
   let isSpeaking = $state(false);
-  let sessionCompletedCount = $state(0);
+  let sessionCompletedCount = $state(initialCompletedCount);
   let isConjugationsModalOpen = $state(false);
+
+  interface ReviewHistoryItem {
+    cardIndex: number;
+    vocabularyId: string;
+    previousReview: SrsReviewRecord | null;
+  }
+  let historyStack = $state<ReviewHistoryItem[]>([]);
 
   let frontWordContainer = $state<HTMLElement | null>(null);
   let backWordContainer = $state<HTMLElement | null>(null);
@@ -130,6 +147,15 @@
     }
 
     const vocabId = currentCard.id;
+    const prevReviewSnapshot = currentCard.review ? { ...currentCard.review } : null;
+
+    // Registrar en el historial para permitir deshacer y recalificar la tarjeta anterior
+    historyStack.push({
+      cardIndex: currentIndex,
+      vocabularyId: vocabId,
+      previousReview: prevReviewSnapshot
+    });
+
     sessionCompletedCount += 1;
     isFlipped = false;
     isConjugationsModalOpen = false;
@@ -138,41 +164,97 @@
 
     if (currentIndex < cards.length - 1) {
       currentIndex += 1;
+      if (onSessionProgress) {
+        onSessionProgress({
+          currentIndex,
+          sessionCompletedCount,
+          totalCards: cards.length
+        });
+      }
     } else {
       currentIndex = cards.length; // Fin de la cola actual
+      if (onSessionFinished) {
+        onSessionFinished();
+      }
+    }
+  }
+
+  async function handleUndoPreviousCard() {
+    if (historyStack.length === 0) return;
+    await hapticImpactMedium();
+
+    const last = historyStack.pop();
+    if (!last) return;
+
+    if (onUndoCard) {
+      await onUndoCard(last.vocabularyId, last.previousReview);
+    }
+
+    currentIndex = last.cardIndex;
+    isFlipped = true; // Voltear para que el usuario vea la respuesta y pueda recalificar
+    sessionCompletedCount = Math.max(0, sessionCompletedCount - 1);
+
+    if (onSessionProgress) {
+      onSessionProgress({
+        currentIndex,
+        sessionCompletedCount,
+        totalCards: cards.length
+      });
     }
   }
 
   function restartDeckSession() {
     currentIndex = 0;
     sessionCompletedCount = 0;
+    historyStack = [];
     isFlipped = false;
+    if (onSessionProgress) {
+      onSessionProgress({
+        currentIndex: 0,
+        sessionCompletedCount: 0,
+        totalCards: cards.length
+      });
+    }
   }
 </script>
 
 <div class="flex flex-col space-y-2.5">
   <!-- Barra Superior de Control de Estudio: Volver, Progreso, Furigana Toggle y Audio TTS -->
   <div class="flex items-center justify-between gap-2">
-    <button
-      type="button"
-      onclick={onExitStudy}
-      class="touch-target px-3 py-2 rounded-2xl bg-[#171717] text-white hover:bg-[#1f2428] text-xs font-semibold active-press flex items-center gap-1.5"
-    >
-      <svg
-        class="w-4 h-4 text-white"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2.2"
-        viewBox="0 0 24 24"
+    <div class="flex items-center gap-1.5 min-w-0">
+      <button
+        type="button"
+        onclick={onExitStudy}
+        class="touch-target px-3 py-2 rounded-2xl bg-[#171717] text-white hover:bg-[#1f2428] text-xs font-semibold active-press flex items-center gap-1.5"
       >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"
-        />
-      </svg>
-      <span class="truncate max-w-[130px]">{deckTitle}</span>
-    </button>
+        <svg
+          class="w-4 h-4 text-white"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.2"
+          viewBox="0 0 24 24"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"
+          />
+        </svg>
+        <span class="truncate max-w-[110px]">{deckTitle}</span>
+      </button>
+
+      {#if historyStack.length > 0}
+        <button
+          type="button"
+          onclick={handleUndoPreviousCard}
+          title="Deshacer y volver a calificar la tarjeta anterior"
+          class="touch-target px-2.5 py-2 rounded-2xl bg-white/10 hover:bg-white/20 active-press text-white/80 hover:text-white text-xs font-bold flex items-center gap-1 transition-colors"
+        >
+          <span>↩</span>
+          <span class="text-[11px] hidden sm:inline">Deshacer</span>
+        </button>
+      {/if}
+    </div>
 
     <!-- Controles: Toggle Furigana (<ruby>) & Audio TTS -->
     <div class="flex items-center gap-2">
@@ -389,9 +471,23 @@
     <!-- ====================================================================== -->
     <div class="pt-1 space-y-1.5">
       {#if isFlipped}
-        <p class="text-center text-xs font-medium text-white/80 animate-fade-in">
-          ¿Qué tan bien recordaste esta palabra?
-        </p>
+        <div class="flex items-center justify-between px-1 animate-fade-in">
+          <p class="text-xs font-medium text-white/80">
+            ¿Qué tan bien recordaste esta palabra?
+          </p>
+
+          {#if historyStack.length > 0}
+            <button
+              type="button"
+              onclick={handleUndoPreviousCard}
+              title="Volver a calificar la tarjeta anterior"
+              class="px-2.5 py-1 rounded-full bg-white/10 hover:bg-white/20 active-press text-[11px] font-bold text-white/80 flex items-center gap-1 transition-colors"
+            >
+              <span>↩</span>
+              <span>Anterior</span>
+            </button>
+          {/if}
+        </div>
       {/if}
 
       <div class="grid grid-cols-4 gap-2">

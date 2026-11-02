@@ -20,12 +20,24 @@
     getStudyHeatmapCells,
     initLocalDatabase,
     recordLocalCardReview,
+    rollbackLocalCardReview,
     type HeatmapDayCell
   } from '../lib/db/database';
-  import type { DeckSummary, ReviewRating, StudyCardItem } from '../lib/db/schema';
+  import type { DeckSummary, ReviewRating, SrsReviewRecord, StudyCardItem } from '../lib/db/schema';
   import { syncManager, syncState, type SyncStatusState } from '../lib/sync/SyncManager';
 
   type ActiveTab = 'dashboard' | 'create-deck' | 'edit-deck' | 'add-words' | 'study' | 'search' | 'sync';
+
+  const ACTIVE_STUDY_SESSION_KEY = 'oboeru_active_study_session';
+
+  export interface ActiveStudySession {
+    deckId: string;
+    deckTitle: string;
+    currentIndex: number;
+    sessionCompletedCount: number;
+    totalCards: number;
+    savedAt: string;
+  }
 
   // Svelte 5 Runes
   let currentTab = $state<ActiveTab>('dashboard');
@@ -33,9 +45,13 @@
   let decks = $state<DeckSummary[]>([]);
   let allCards = $state<StudyCardItem[]>([]);
   let selectedDeckTitle = $state('JLPT N5 Esencial');
+  let currentStudyDeckId = $state<string>('');
   let activeStudyCards = $state<StudyCardItem[]>([]);
   let editingDeck = $state<DeckSummary | null>(null);
   let targetDeckForAddWords = $state<DeckSummary | null>(null);
+  let activeSession = $state<ActiveStudySession | null>(null);
+  let initialStudyIndex = $state(0);
+  let initialCompletedCount = $state(0);
 
   let heatmapCells = $state<HeatmapDayCell[]>([]);
   let totalReviews = $state(0);
@@ -109,6 +125,7 @@
     // 3. Inicializar Base de Datos Local, restaurar sesión guardada y disparar OTA + Sync
     (async () => {
       await initLocalDatabase(syncManager.getUserId());
+      activeSession = loadStoredStudySession();
       const hasSavedSession = await syncManager.ensureSessionHydrated();
       isCheckingSession = false;
 
@@ -135,6 +152,36 @@
     await refreshLocalData();
   }
 
+  function loadStoredStudySession(): ActiveStudySession | null {
+    try {
+      const raw = localStorage.getItem(ACTIVE_STUDY_SESSION_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as ActiveStudySession;
+      if (parsed && parsed.deckId && parsed.currentIndex !== undefined && parsed.totalCards > 0) {
+        if (parsed.currentIndex >= parsed.totalCards) {
+          localStorage.removeItem(ACTIVE_STUDY_SESSION_KEY);
+          return null;
+        }
+        return parsed;
+      }
+    } catch (e) {
+      console.warn('[Session] Error loading active session:', e);
+    }
+    return null;
+  }
+
+  function saveActiveStudySession(session: ActiveStudySession | null) {
+    try {
+      if (session) {
+        localStorage.setItem(ACTIVE_STUDY_SESSION_KEY, JSON.stringify(session));
+      } else {
+        localStorage.removeItem(ACTIVE_STUDY_SESSION_KEY);
+      }
+    } catch (e) {
+      console.warn('[Session] Error saving active session:', e);
+    }
+  }
+
   async function switchTab(tab: ActiveTab) {
     if (currentTab !== tab) {
       await hapticSelection();
@@ -144,9 +191,105 @@
 
   function handleSelectDeck(deck: DeckSummary) {
     selectedDeckTitle = deck.title;
+    currentStudyDeckId = deck.id;
     const matching = deck.filterFn ? allCards.filter(deck.filterFn) : allCards;
     activeStudyCards = matching;
+
+    if (activeSession && activeSession.deckId === deck.id && activeSession.currentIndex < matching.length) {
+      initialStudyIndex = activeSession.currentIndex;
+      initialCompletedCount = activeSession.sessionCompletedCount;
+    } else {
+      initialStudyIndex = 0;
+      initialCompletedCount = 0;
+      if (matching.length > 0) {
+        const fresh: ActiveStudySession = {
+          deckId: deck.id,
+          deckTitle: deck.title,
+          currentIndex: 0,
+          sessionCompletedCount: 0,
+          totalCards: matching.length,
+          savedAt: new Date().toISOString()
+        };
+        activeSession = fresh;
+        saveActiveStudySession(fresh);
+      }
+    }
     currentTab = 'study';
+  }
+
+  function resumeCurrentSession() {
+    if (!activeSession) return;
+    const targetDeck = decks.find((d) => d.id === activeSession!.deckId);
+    selectedDeckTitle = activeSession.deckTitle;
+    currentStudyDeckId = activeSession.deckId;
+    initialStudyIndex = activeSession.currentIndex;
+    initialCompletedCount = activeSession.sessionCompletedCount;
+
+    const matching = targetDeck?.filterFn ? allCards.filter(targetDeck.filterFn) : allCards;
+    activeStudyCards = matching;
+    currentTab = 'study';
+  }
+
+  function restartCurrentSession() {
+    if (!activeSession) return;
+    const targetDeck = decks.find((d) => d.id === activeSession!.deckId);
+    const deckId = activeSession.deckId;
+    const deckTitle = activeSession.deckTitle;
+
+    selectedDeckTitle = deckTitle;
+    currentStudyDeckId = deckId;
+    initialStudyIndex = 0;
+    initialCompletedCount = 0;
+
+    const matching = targetDeck?.filterFn ? allCards.filter(targetDeck.filterFn) : allCards;
+    activeStudyCards = matching;
+
+    const fresh: ActiveStudySession = {
+      deckId,
+      deckTitle,
+      currentIndex: 0,
+      sessionCompletedCount: 0,
+      totalCards: matching.length,
+      savedAt: new Date().toISOString()
+    };
+    activeSession = fresh;
+    saveActiveStudySession(fresh);
+
+    currentTab = 'study';
+  }
+
+  function clearActiveSession() {
+    activeSession = null;
+    saveActiveStudySession(null);
+  }
+
+  function handleSessionProgress(progress: { currentIndex: number; sessionCompletedCount: number; totalCards: number }) {
+    if (currentStudyDeckId && progress.currentIndex < progress.totalCards) {
+      const updated: ActiveStudySession = {
+        deckId: currentStudyDeckId,
+        deckTitle: selectedDeckTitle,
+        currentIndex: progress.currentIndex,
+        sessionCompletedCount: progress.sessionCompletedCount,
+        totalCards: progress.totalCards,
+        savedAt: new Date().toISOString()
+      };
+      activeSession = updated;
+      saveActiveStudySession(updated);
+    } else {
+      activeSession = null;
+      saveActiveStudySession(null);
+    }
+  }
+
+  function handleSessionFinished() {
+    activeSession = null;
+    saveActiveStudySession(null);
+  }
+
+  async function handleUndoCard(vocabularyId: string, previousReview: SrsReviewRecord | null) {
+    await rollbackLocalCardReview(previousReview, vocabularyId, syncManager.getUserId());
+    await refreshLocalData();
+    syncManager.tryAutoSync().catch(() => {});
   }
 
   async function handleRateCard(vocabularyId: string, rating: ReviewRating) {
@@ -301,6 +444,73 @@
     <!-- Contenido Principal con Scroll Móvil -->
     <main class="flex-1 overflow-y-auto px-5 py-4 pb-28 max-w-lg w-full mx-auto">
       {#if currentTab === 'dashboard'}
+        {#if activeSession && activeSession.currentIndex < activeSession.totalCards}
+          <!-- Banner de Sesión de Estudio en Curso -->
+          <div class="mb-5 p-4 rounded-3xl bg-gradient-to-br from-[#1c2d25] via-[#14201a] to-[#0e1612] border border-[#a7f3d0]/35 shadow-2xl space-y-3 animate-fade-in relative">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="flex h-2 w-2 relative">
+                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span class="text-[10px] font-extrabold tracking-wider uppercase text-[#a7f3d0]">
+                  Sesión en curso
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onclick={clearActiveSession}
+                title="Descartar sesión en curso"
+                class="touch-target p-1.5 -mr-1 rounded-full text-white/50 hover:text-white hover:bg-white/10 active-press transition-colors"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div class="space-y-1">
+              <h3 class="text-base font-extrabold text-white leading-snug">
+                {activeSession.deckTitle}
+              </h3>
+              <div class="flex items-center justify-between text-[11px] text-white/70">
+                <span>Tarjeta <strong class="text-white">{activeSession.currentIndex + 1}</strong> de {activeSession.totalCards}</span>
+                <span>{activeSession.sessionCompletedCount} repasadas</span>
+              </div>
+
+              <!-- Barra de progreso -->
+              <div class="w-full h-1.5 bg-black/40 rounded-full overflow-hidden mt-1.5">
+                <div
+                  class="h-full bg-gradient-to-r from-emerald-500 to-[#a7f3d0] transition-all duration-300 rounded-full"
+                  style="width: {Math.max(5, Math.min(100, Math.round(((activeSession.currentIndex) / activeSession.totalCards) * 100)))}%"
+                ></div>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onclick={resumeCurrentSession}
+                class="flex-1 touch-target py-2.5 px-4 rounded-2xl bg-[#a7f3d0] hover:bg-[#86efac] text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 active-press shadow-md transition-colors"
+              >
+                <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+                <span>Continuar estudio</span>
+              </button>
+
+              <button
+                type="button"
+                onclick={restartCurrentSession}
+                class="touch-target py-2.5 px-3.5 rounded-2xl bg-white/10 hover:bg-white/15 text-white/80 hover:text-white font-semibold text-xs flex items-center justify-center gap-1 active-press transition-colors"
+              >
+                <span>Empezar de nuevo</span>
+              </button>
+            </div>
+          </div>
+        {/if}
+
         <DeckList
           {decks}
           {heatmapCells}
@@ -361,7 +571,12 @@
         <StudyCard
           deckTitle={selectedDeckTitle}
           cards={activeStudyCards}
+          initialIndex={initialStudyIndex}
+          initialCompletedCount={initialCompletedCount}
           onRateCard={handleRateCard}
+          onUndoCard={handleUndoCard}
+          onSessionProgress={handleSessionProgress}
+          onSessionFinished={handleSessionFinished}
           onExitStudy={() => switchTab('dashboard')}
         />
       {:else if currentTab === 'search'}

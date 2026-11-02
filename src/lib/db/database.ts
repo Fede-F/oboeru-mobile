@@ -1011,6 +1011,66 @@ export async function recordLocalCardReview(
 }
 
 /**
+ * Revierte una calificación SRS (Deshacer / Volver a tarjeta anterior).
+ * Restaura el estado previo del review en srs_reviews y decrementa study_log.
+ */
+export async function rollbackLocalCardReview(
+  previousReview: SrsReviewRecord | null,
+  vocabularyId: string,
+  userId: string = LOCAL_DEFAULT_USER_ID
+): Promise<void> {
+  const db = await openLocalDb();
+  const nowIso = new Date().toISOString();
+
+  let existingIdToDelete: string | null = null;
+  if (!previousReview) {
+    const all = await getAllReviews();
+    const curr = all.find((r) => r.vocabulary_id === vocabularyId);
+    if (curr) {
+      existingIdToDelete = curr.id;
+    }
+  }
+
+  const tx = db.transaction(['srs_reviews', 'study_log'], 'readwrite');
+  const reviewStore = tx.objectStore('srs_reviews');
+
+  if (previousReview) {
+    reviewStore.put({
+      ...previousReview,
+      updated_at: nowIso,
+      dirty: true
+    });
+  } else if (existingIdToDelete) {
+    reviewStore.delete(existingIdToDelete);
+  }
+
+  // Decrementar contador diario en study_log si era > 0
+  const todayKey = formatDateKey(new Date());
+  const logKey = `${userId}::${todayKey}`;
+  const logStore = tx.objectStore('study_log');
+  const getLogReq = logStore.get(logKey);
+  getLogReq.onsuccess = () => {
+    const prev = getLogReq.result as StudyLogRecord | undefined;
+    const currentCount = prev?.reviews_count ?? 0;
+    if (currentCount > 0) {
+      logStore.put({
+        id: logKey,
+        user_id: userId,
+        date_key: todayKey,
+        reviews_count: currentCount - 1,
+        updated_at: nowIso,
+        dirty: true
+      } satisfies StudyLogRecord);
+    }
+  };
+
+  await new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/**
  * Agrega una palabra al estudio (guardándola en la base local si viene del buscador remoto)
  * o desactiva un registro con Soft-Delete (Tombstone).
  */
