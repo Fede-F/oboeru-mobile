@@ -532,65 +532,77 @@
         <p class="text-center text-xs font-medium text-white/80 animate-fade-in">
           ¿Qué tan bien recordaste esta palabra?
         </p>
+
+        <div class="grid grid-cols-4 gap-2 animate-fade-in">
+          <!-- 1: Again -->
+          <button
+            type="button"
+            onclick={() => handleRate(1)}
+            class="touch-target py-2 px-2 rounded-2xl bg-[#171c20] hover:bg-[#1f262b] active-press flex flex-col items-center justify-center shadow-md"
+          >
+            <span class="text-[10px] font-bold text-white/60 leading-none">
+              {srsTimeLabels[1]}
+            </span>
+            <span class="text-xs font-bold text-white mt-1 leading-none">
+              Otra vez
+            </span>
+          </button>
+
+          <!-- 2: Hard -->
+          <button
+            type="button"
+            onclick={() => handleRate(2)}
+            class="touch-target py-2 px-2 rounded-2xl bg-[#171c20] hover:bg-[#1f262b] active-press flex flex-col items-center justify-center shadow-md"
+          >
+            <span class="text-[10px] font-bold text-white/60 leading-none">
+              {srsTimeLabels[2]}
+            </span>
+            <span class="text-xs font-bold text-white mt-1 leading-none">
+              Difícil
+            </span>
+          </button>
+
+          <!-- 3: Good -->
+          <button
+            type="button"
+            onclick={() => handleRate(3)}
+            class="touch-target py-2 px-2 rounded-2xl bg-[#3e534a] hover:bg-[#496157] active-press flex flex-col items-center justify-center shadow-md"
+          >
+            <span class="text-[10px] font-bold text-white/75 leading-none">
+              {srsTimeLabels[3]}
+            </span>
+            <span class="text-xs font-bold text-white mt-1 leading-none">
+              Bien
+            </span>
+          </button>
+
+          <!-- 4: Easy -->
+          <button
+            type="button"
+            onclick={() => handleRate(4)}
+            class="touch-target py-2 px-2 rounded-2xl bg-[#283924] hover:bg-[#31462c] active-press flex flex-col items-center justify-center shadow-md"
+          >
+            <span class="text-[10px] font-bold text-white/75 leading-none">
+              {srsTimeLabels[4]}
+            </span>
+            <span class="text-xs font-bold text-white mt-1 leading-none">
+              Fácil
+            </span>
+          </button>
+        </div>
+      {:else}
+        <!-- Botón para mostrar la respuesta y revelar las opciones SRS -->
+        <button
+          type="button"
+          onclick={handleCardFlip}
+          class="w-full touch-target py-3 px-4 rounded-2xl bg-[#2f3b35] hover:bg-[#3e534a] active-press text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md transition-all border border-white/10"
+        >
+          <span>Mostrar respuesta</span>
+          <svg class="w-4 h-4 text-[#a7f3d0]" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+          </svg>
+        </button>
       {/if}
-
-      <div class="grid grid-cols-4 gap-2">
-        <!-- 1: Again -->
-        <button
-          type="button"
-          onclick={() => handleRate(1)}
-          class="touch-target py-2 px-2 rounded-2xl bg-[#171c20] hover:bg-[#1f262b] active-press flex flex-col items-center justify-center shadow-md"
-        >
-          <span class="text-[10px] font-bold text-white/60 leading-none">
-            {srsTimeLabels[1]}
-          </span>
-          <span class="text-xs font-bold text-white mt-1 leading-none">
-            Otra vez
-          </span>
-        </button>
-
-        <!-- 2: Hard -->
-        <button
-          type="button"
-          onclick={() => handleRate(2)}
-          class="touch-target py-2 px-2 rounded-2xl bg-[#171c20] hover:bg-[#1f262b] active-press flex flex-col items-center justify-center shadow-md"
-        >
-          <span class="text-[10px] font-bold text-white/60 leading-none">
-            {srsTimeLabels[2]}
-          </span>
-          <span class="text-xs font-bold text-white mt-1 leading-none">
-            Difícil
-          </span>
-        </button>
-
-        <!-- 3: Good -->
-        <button
-          type="button"
-          onclick={() => handleRate(3)}
-          class="touch-target py-2 px-2 rounded-2xl bg-[#3e534a] hover:bg-[#496157] active-press flex flex-col items-center justify-center shadow-md"
-        >
-          <span class="text-[10px] font-bold text-white/75 leading-none">
-            {srsTimeLabels[3]}
-          </span>
-          <span class="text-xs font-bold text-white mt-1 leading-none">
-            Bien
-          </span>
-        </button>
-
-        <!-- 4: Easy -->
-        <button
-          type="button"
-          onclick={() => handleRate(4)}
-          class="touch-target py-2 px-2 rounded-2xl bg-[#283924] hover:bg-[#31462c] active-press flex flex-col items-center justify-center shadow-md"
-        >
-          <span class="text-[10px] font-bold text-white/75 leading-none">
-            {srsTimeLabels[4]}
-          </span>
-          <span class="text-xs font-bold text-white mt-1 leading-none">
-            Fácil
-          </span>
-        </button>
-      </div>
 
       <!-- Fila de Acciones Secundarias: Tarjeta anterior y Finalizar sesión -->
       <div class="flex items-center gap-2 pt-1.5">
