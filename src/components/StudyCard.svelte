@@ -52,6 +52,7 @@
   let isSpeaking = $state(false);
   let sessionCompletedCount = $state(initialCompletedCount);
   let isConjugationsModalOpen = $state(false);
+  let slideDirection = $state<'right' | 'left'>('right');
 
   // Determinar la dirección de la tarjeta actual según el modo del mazo
   let cardDirection = $derived<'jp_to_es' | 'es_to_jp'>(() => {
@@ -171,6 +172,7 @@
     sessionCompletedCount += 1;
     isFlipped = false;
     isConjugationsModalOpen = false;
+    slideDirection = 'right';
 
     await onRateCard(vocabId, rating);
 
@@ -204,6 +206,7 @@
 
     currentIndex = last.cardIndex;
     isFlipped = true; // Voltear para que el usuario vea la respuesta y pueda recalificar
+    slideDirection = 'left';
     sessionCompletedCount = Math.max(0, sessionCompletedCount - 1);
 
     if (onSessionProgress) {
@@ -228,6 +231,7 @@
     sessionCompletedCount = 0;
     historyStack = [];
     isFlipped = false;
+    slideDirection = 'right';
     if (onSessionProgress) {
       onSessionProgress({
         currentIndex: 0,
@@ -328,200 +332,228 @@
     </div>
 
     <!-- ====================================================================== -->
-    <!-- TARJETA FLASHCARD CON GRADIENTE VERDE OLIVA MATE COMPACTA              -->
+    <!-- TARJETA FLASHCARD 3D FLIP CON ANIMACIÓN DE SLIDE Y GIRO TÁCTIL          -->
     <!-- ====================================================================== -->
-    <div
-      role="button"
-      tabindex="0"
-      onclick={handleCardFlip}
-      onkeydown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          handleCardFlip();
-        }
-      }}
-      aria-label="Tocar el centro de la tarjeta para voltear"
-      class="min-h-[320px] max-h-[460px] rounded-[28px] bg-gradient-to-br from-[#43534a] via-[#2f3b35] to-[#1a231f] shadow-2xl p-4 sm:p-5 flex flex-col justify-between relative overflow-y-auto cursor-pointer active-press {showFurigana
-        ? ''
-        : 'furigana-hidden'}"
-    >
-      <!-- Cabecera interna de la tarjeta -->
-      <div class="flex items-center justify-between text-xs">
-        <div class="flex items-center gap-1.5">
-          <span
-            class="px-2.5 py-0.5 rounded-full bg-black/25 text-white font-semibold tracking-wide"
-          >
-            {#if cardDirection === 'es_to_jp'}
-              {isFlipped ? "裏 • Respuesta (Japonés)" : "表 • Pregunta (Español)"}
-            {:else}
-              {isFlipped ? "裏 • Respuesta (Español)" : "表 • Pregunta (Japonés)"}
-            {/if}
-          </span>
-          {#if studyMode === 'mixed'}
-            <span class="text-[10px] px-2 py-0.5 rounded-md bg-white/10 text-white/80 font-bold">
-              {cardDirection === 'es_to_jp' ? 'ES → JP' : 'JP → ES'}
-            </span>
-          {/if}
-        </div>
-
-        <span class="text-[11px] text-white/75 font-medium">
-          {currentCard.review.state === "new"
-            ? "Palabra nueva"
-            : currentCard.review.state === "learning"
-              ? "En aprendizaje"
-              : "En repaso"}
-        </span>
-      </div>
-
-      {#if !isFlipped}
-        {#if cardDirection === 'es_to_jp'}
-          <!-- FRENTE: Modo Español -> Japonés (Producción / Memoria Activa) -->
+    <div class="perspective-container">
+      {#key currentIndex}
+        <div class={slideDirection === 'right' ? 'slide-card-right' : 'slide-card-left'}>
           <div
-            class="my-auto py-4 flex flex-col items-center justify-center text-center space-y-2.5"
+            role="button"
+            tabindex="0"
+            onclick={handleCardFlip}
+            onkeydown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                handleCardFlip();
+              }
+            }}
+            aria-label="Tocar el centro de la tarjeta para girar"
+            class="flip-card-inner active-press {isFlipped ? 'is-flipped' : ''} {showFurigana ? '' : 'furigana-hidden'}"
           >
-            <span
-              class="text-[10px] uppercase tracking-widest text-[#a7f3d0] font-extrabold bg-[#a7f3d0]/15 px-3 py-1 rounded-full border border-[#a7f3d0]/30"
-            >
-              ¿Cómo se dice en japonés?
-            </span>
-            <p
-              class="text-2xl sm:text-3xl font-extrabold text-white tracking-wide leading-snug line-clamp-3 select-text px-2"
-            >
-              {currentCard.meaning_es}
-            </p>
-            {#if currentCard.meaning_en}
-              <p class="text-xs text-white/60 italic line-clamp-1">
-                EN: {currentCard.meaning_en}
-              </p>
-            {/if}
-          </div>
+            <!-- ================= CARA FRONTAL (FRENTE / PREGUNTA) ================= -->
+            <div class="flip-face flip-face-front bg-gradient-to-br from-[#43534a] via-[#2f3b35] to-[#1a231f] shadow-2xl p-4 sm:p-5 flex flex-col justify-between">
+              <!-- Cabecera interna del frente -->
+              <div class="flex items-center justify-between text-xs">
+                <div class="flex items-center gap-1.5">
+                  <span
+                    class="px-2.5 py-0.5 rounded-full bg-black/25 text-white font-semibold tracking-wide"
+                  >
+                    {cardDirection === 'es_to_jp' ? "表 • Pregunta (Español)" : "表 • Pregunta (Japonés)"}
+                  </span>
+                  {#if studyMode === 'mixed'}
+                    <span class="text-[10px] px-2 py-0.5 rounded-md bg-white/10 text-white/80 font-bold">
+                      {cardDirection === 'es_to_jp' ? 'ES → JP' : 'JP → ES'}
+                    </span>
+                  {/if}
+                </div>
 
-          <!-- Pie del Frente: Instrucción táctil -->
-          <div class="text-center pt-2 border-t border-white/10">
-            <p
-              class="text-[11px] text-white/75 font-medium flex items-center justify-center gap-1.5"
-            >
-              <span>Tocá la tarjeta para revelar la palabra en japonés</span>
-            </p>
-          </div>
-        {:else}
-          <!-- FRENTE: Modo Japonés -> Español (Reconocimiento / Lectura) -->
-          <div
-            class="my-auto py-4 flex flex-col items-center justify-center text-center"
-          >
-            <div
-              bind:this={frontWordContainer}
-              class="text-4xl sm:text-5xl font-bold text-white tracking-wide leading-relaxed select-text"
-            >
-              {stripRubyTags(currentCard.kanji || currentCard.reading)}
-            </div>
-
-            {#if !currentCard.kanji}
-              <span
-                class="mt-2 text-[11px] uppercase tracking-widest text-white/70 font-semibold"
-              >
-                Palabra en Kana
-              </span>
-            {/if}
-          </div>
-
-          <!-- Pie del Frente: Instrucción táctil -->
-          <div class="text-center pt-2 border-t border-white/10">
-            <p
-              class="text-[11px] text-white/75 font-medium flex items-center justify-center gap-1.5"
-            >
-              <span>Tocá la tarjeta para revelar significado y ejemplo</span>
-            </p>
-          </div>
-        {/if}
-      {:else}
-        <!-- REVERSO: Traducción, Romaji y Oración de Ejemplo (Tatoeba) -->
-        <div class="my-auto py-1.5 space-y-2.5">
-          <!-- Palabra + Lectura Kana + Romaji -->
-          <div class="text-center pb-2 border-b border-white/10">
-            <div
-              bind:this={backWordContainer}
-              class="text-2xl font-bold text-white tracking-wide leading-snug"
-            >
-              {stripRubyTags(currentCard.kanji || currentCard.reading)}
-            </div>
-            <div class="mt-1 flex items-center justify-center gap-2 text-xs">
-              <span class="text-white font-semibold"
-                >{currentCard.reading}</span
-              >
-              <span class="text-white/30">•</span>
-              <span
-                class="font-mono text-white/80 text-[11px] uppercase tracking-wider"
-              >
-                {romajiReading}
-              </span>
-            </div>
-          </div>
-
-          <!-- Significados (Español + Inglés) -->
-          <div class="space-y-0.5 text-center">
-            <p class="text-lg font-bold text-white leading-snug line-clamp-2">
-              {currentCard.meaning_es}
-            </p>
-            <p class="text-[11px] text-white/70 italic line-clamp-1">
-              EN: {currentCard.meaning_en}
-            </p>
-          </div>
-
-          <!-- Si es un verbo, botón para desplegar tabla completa de conjugaciones -->
-          {#if verbInfo}
-            <div class="flex justify-center pt-0.5">
-              <button
-                type="button"
-                onclick={(e) => {
-                  e.stopPropagation();
-                  isConjugationsModalOpen = true;
-                }}
-                class="touch-target px-3.5 py-1.5 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 active-press border border-emerald-400/40 text-emerald-300 text-xs font-bold flex items-center gap-1.5 shadow-sm"
-              >
-                <span>📖</span>
-                <span>{verbInfo.label} • Ver conjugaciones</span>
-              </button>
-            </div>
-          {/if}
-
-          <!-- Oración de Ejemplo con botón de audio propio -->
-          {#if currentCard.example_sentence}
-            <div
-              class="p-2.5 rounded-2xl bg-black/25 space-y-1"
-            >
-              <div class="flex items-center justify-between gap-2">
-                <span
-                  class="text-[10px] font-bold uppercase tracking-wider text-white/70"
-                >
-                  Ejemplo
+                <span class="text-[11px] text-white/75 font-medium">
+                  {currentCard.review.state === "new"
+                    ? "Palabra nueva"
+                    : currentCard.review.state === "learning"
+                      ? "En aprendizaje"
+                      : "En repaso"}
                 </span>
-                <button
-                  type="button"
-                  onclick={(e) => handlePlayAudio(e, parsedExample.jpPlain)}
-                  class="px-2.5 py-1 rounded-full bg-white/20 hover:bg-white/30 active-press text-[11px] font-semibold text-white flex items-center gap-1.5 shadow-sm"
+              </div>
+
+              {#if cardDirection === 'es_to_jp'}
+                <!-- FRENTE: Modo Español -> Japonés (Producción / Memoria Activa) -->
+                <div
+                  class="my-auto py-4 flex flex-col items-center justify-center text-center space-y-2.5"
                 >
-                  <span>🔊</span>
-                  <span>Escuchar</span>
-                </button>
-              </div>
+                  <span
+                    class="text-[10px] uppercase tracking-widest text-[#a7f3d0] font-extrabold bg-[#a7f3d0]/15 px-3 py-1 rounded-full border border-[#a7f3d0]/30"
+                  >
+                    ¿Cómo se dice en japonés?
+                  </span>
+                  <p
+                    class="text-2xl sm:text-3xl font-extrabold text-white tracking-wide leading-snug line-clamp-3 select-text px-2"
+                  >
+                    {currentCard.meaning_es}
+                  </p>
+                  {#if currentCard.meaning_en}
+                    <p class="text-xs text-white/60 italic line-clamp-1">
+                      EN: {currentCard.meaning_en}
+                    </p>
+                  {/if}
+                </div>
+              {:else}
+                <!-- FRENTE: Modo Japonés -> Español (Reconocimiento / Lectura) -->
+                <div
+                  class="my-auto py-4 flex flex-col items-center justify-center text-center"
+                >
+                  <div
+                    bind:this={frontWordContainer}
+                    class="text-4xl sm:text-5xl font-bold text-white tracking-wide leading-relaxed select-text"
+                  >
+                    {stripRubyTags(currentCard.kanji || currentCard.reading)}
+                  </div>
 
-              <div
-                bind:this={exampleJpContainer}
-                class="text-sm font-medium text-white leading-snug"
-              >
-                {parsedExample.jpPlain}
-              </div>
-
-              {#if parsedExample.translation}
-                <p class="text-[11px] text-white/80 leading-snug line-clamp-2">
-                  {parsedExample.translation}
-                </p>
+                  {#if !currentCard.kanji}
+                    <span
+                      class="mt-2 text-[11px] uppercase tracking-widest text-white/70 font-semibold"
+                    >
+                      Palabra en Kana
+                    </span>
+                  {/if}
+                </div>
               {/if}
+
+              <!-- Pie del Frente: Instrucción táctil -->
+              <div class="text-center pt-2 border-t border-white/10">
+                <p
+                  class="text-[11px] text-white/75 font-medium flex items-center justify-center gap-1.5"
+                >
+                  <span>Tocá la tarjeta para girar y ver respuesta</span>
+                </p>
+              </div>
             </div>
-          {/if}
+
+            <!-- ================= CARA TRASERA (DORSO / RESPUESTA) ================= -->
+            <div class="flip-face flip-face-back bg-gradient-to-br from-[#3b4c42] via-[#2a362f] to-[#151f1a] shadow-2xl p-4 sm:p-5 flex flex-col justify-between">
+              <!-- Cabecera interna del reverso -->
+              <div class="flex items-center justify-between text-xs">
+                <div class="flex items-center gap-1.5">
+                  <span
+                    class="px-2.5 py-0.5 rounded-full bg-black/25 text-white font-semibold tracking-wide"
+                  >
+                    {cardDirection === 'es_to_jp' ? "裏 • Respuesta (Japonés)" : "裏 • Respuesta (Español)"}
+                  </span>
+                  {#if studyMode === 'mixed'}
+                    <span class="text-[10px] px-2 py-0.5 rounded-md bg-white/10 text-white/80 font-bold">
+                      {cardDirection === 'es_to_jp' ? 'ES → JP' : 'JP → ES'}
+                    </span>
+                  {/if}
+                </div>
+
+                <span class="text-[11px] text-white/75 font-medium">
+                  {currentCard.review.state === "new"
+                    ? "Palabra nueva"
+                    : currentCard.review.state === "learning"
+                      ? "En aprendizaje"
+                      : "En repaso"}
+                </span>
+              </div>
+
+              <!-- Cuerpo de la respuesta -->
+              <div class="my-auto py-1.5 space-y-2.5">
+                <!-- Palabra + Lectura Kana + Romaji -->
+                <div class="text-center pb-2 border-b border-white/10">
+                  <div
+                    bind:this={backWordContainer}
+                    class="text-2xl font-bold text-white tracking-wide leading-snug"
+                  >
+                    {stripRubyTags(currentCard.kanji || currentCard.reading)}
+                  </div>
+                  <div class="mt-1 flex items-center justify-center gap-2 text-xs">
+                    <span class="text-white font-semibold"
+                      >{currentCard.reading}</span
+                    >
+                    <span class="text-white/30">•</span>
+                    <span
+                      class="font-mono text-white/80 text-[11px] uppercase tracking-wider"
+                    >
+                      {romajiReading}
+                    </span>
+                  </div>
+                </div>
+
+                <!-- Significados (Español + Inglés) -->
+                <div class="space-y-0.5 text-center">
+                  <p class="text-lg font-bold text-white leading-snug line-clamp-2">
+                    {currentCard.meaning_es}
+                  </p>
+                  <p class="text-[11px] text-white/70 italic line-clamp-1">
+                    EN: {currentCard.meaning_en}
+                  </p>
+                </div>
+
+                <!-- Si es un verbo, botón para desplegar tabla completa de conjugaciones -->
+                {#if verbInfo}
+                  <div class="flex justify-center pt-0.5">
+                    <button
+                      type="button"
+                      onclick={(e) => {
+                        e.stopPropagation();
+                        isConjugationsModalOpen = true;
+                      }}
+                      class="touch-target px-3.5 py-1.5 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 active-press border border-emerald-400/40 text-emerald-300 text-xs font-bold flex items-center gap-1.5 shadow-sm"
+                    >
+                      <span>📖</span>
+                      <span>{verbInfo.label} • Ver conjugaciones</span>
+                    </button>
+                  </div>
+                {/if}
+
+                <!-- Oración de Ejemplo con botón de audio propio -->
+                {#if currentCard.example_sentence}
+                  <div
+                    class="p-2.5 rounded-2xl bg-black/25 space-y-1"
+                  >
+                    <div class="flex items-center justify-between gap-2">
+                      <span
+                        class="text-[10px] font-bold uppercase tracking-wider text-white/70"
+                      >
+                        Ejemplo
+                      </span>
+                      <button
+                        type="button"
+                        onclick={(e) => handlePlayAudio(e, parsedExample.jpPlain)}
+                        class="px-2.5 py-1 rounded-full bg-white/20 hover:bg-white/30 active-press text-[11px] font-semibold text-white flex items-center gap-1.5 shadow-sm"
+                      >
+                        <span>🔊</span>
+                        <span>Escuchar</span>
+                      </button>
+                    </div>
+
+                    <div
+                      bind:this={exampleJpContainer}
+                      class="text-sm font-medium text-white leading-snug"
+                    >
+                      {parsedExample.jpPlain}
+                    </div>
+
+                    {#if parsedExample.translation}
+                      <p class="text-[11px] text-white/80 leading-snug line-clamp-2">
+                        {parsedExample.translation}
+                      </p>
+                    {/if}
+                  </div>
+                {/if}
+              </div>
+
+              <!-- Pie del Reverso: Instrucción para volver al frente -->
+              <div class="text-center pt-1.5 border-t border-white/10">
+                <p
+                  class="text-[10px] text-white/60 font-medium flex items-center justify-center gap-1.5"
+                >
+                  <span>Tocá la tarjeta para volver a la pregunta</span>
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
-      {/if}
+      {/key}
     </div>
 
     <!-- ====================================================================== -->

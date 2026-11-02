@@ -139,3 +139,83 @@
   height: 0px;
   background: transparent;
 }
+
+/* ==========================================================================
+   Animaciones de Estudio: Slide de tarjetas y Flip 3D
+   ========================================================================== */
+
+@keyframes slideCardInRight {
+  0% {
+    opacity: 0;
+    transform: translate3d(36px, 0, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes slideCardInLeft {
+  0% {
+    opacity: 0;
+    transform: translate3d(-36px, 0, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.slide-card-right {
+  animation: slideCardInRight 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.slide-card-left {
+  animation: slideCardInLeft 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Contenedor con Perspectiva 3D para el Giro de la Tarjeta */
+.perspective-container {
+  -webkit-perspective: 1000px;
+  perspective: 1000px;
+}
+
+.flip-card-inner {
+  position: relative;
+  width: 100%;
+  height: 385px;
+  -webkit-transform-style: preserve-3d;
+  transform-style: preserve-3d;
+  transition: transform 0.42s cubic-bezier(0.34, 1.25, 0.64, 1);
+  will-change: transform;
+}
+
+@media (min-height: 720px) {
+  .flip-card-inner {
+    height: 405px;
+  }
+}
+
+.flip-card-inner.is-flipped {
+  transform: rotateY(180deg);
+}
+
+.flip-face {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  border-radius: 28px;
+  overflow-y: auto;
+}
+
+.flip-face-front {
+  transform: rotateY(0deg) translateZ(1px);
+}
+
+.flip-face-back {
+  transform: rotateY(180deg) translateZ(1px);
+}
+
