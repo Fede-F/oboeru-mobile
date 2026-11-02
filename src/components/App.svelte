@@ -25,6 +25,7 @@
   } from '../lib/db/database';
   import type { DeckSummary, ReviewRating, SrsReviewRecord, StudyCardItem } from '../lib/db/schema';
   import { syncManager, syncState, type SyncStatusState } from '../lib/sync/SyncManager';
+  import { getDeckStudyMode, type StudyMode } from '../lib/studyMode';
 
   type ActiveTab = 'dashboard' | 'create-deck' | 'edit-deck' | 'add-words' | 'study' | 'search' | 'sync';
 
@@ -36,6 +37,8 @@
     currentIndex: number;
     sessionCompletedCount: number;
     totalCards: number;
+    cardIds?: string[];
+    studyMode?: StudyMode;
     savedAt: string;
   }
 
@@ -46,6 +49,7 @@
   let allCards = $state<StudyCardItem[]>([]);
   let selectedDeckTitle = $state('JLPT N5 Esencial');
   let currentStudyDeckId = $state<string>('');
+  let currentStudyMode = $state<StudyMode>('jp_to_es');
   let activeStudyCards = $state<StudyCardItem[]>([]);
   let editingDeck = $state<DeckSummary | null>(null);
   let targetDeckForAddWords = $state<DeckSummary | null>(null);
@@ -189,25 +193,49 @@
     }
   }
 
+  // Algoritmo Fisher-Yates para barajar tarjetas en orden aleatorio (Interleaving)
+  function shuffleCards<T>(array: T[]): T[] {
+    const arr = [...array];
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+
   function handleSelectDeck(deck: DeckSummary) {
     selectedDeckTitle = deck.title;
     currentStudyDeckId = deck.id;
     const matching = deck.filterFn ? allCards.filter(deck.filterFn) : allCards;
-    activeStudyCards = matching;
+    const mode = getDeckStudyMode(deck.id);
+    currentStudyMode = mode;
 
-    if (activeSession && activeSession.deckId === deck.id && activeSession.currentIndex < matching.length) {
+    if (activeSession && activeSession.deckId === deck.id && activeSession.cardIds && activeSession.cardIds.length > 0) {
+      // Reanudar respetando el orden aleatorio y modo guardados
+      const cardMap = new Map(matching.map((c) => [c.id, c]));
+      const ordered = activeSession.cardIds.map((id) => cardMap.get(id)).filter(Boolean) as StudyCardItem[];
+      activeStudyCards = ordered.length > 0 ? ordered : matching;
       initialStudyIndex = activeSession.currentIndex;
       initialCompletedCount = activeSession.sessionCompletedCount;
+      if (activeSession.studyMode) {
+        currentStudyMode = activeSession.studyMode;
+      }
     } else {
+      // Iniciar sesión nueva barajando aleatoriamente (Shuffle)
+      const shuffled = shuffleCards(matching);
+      activeStudyCards = shuffled;
       initialStudyIndex = 0;
       initialCompletedCount = 0;
-      if (matching.length > 0) {
+
+      if (shuffled.length > 0) {
         const fresh: ActiveStudySession = {
           deckId: deck.id,
           deckTitle: deck.title,
           currentIndex: 0,
           sessionCompletedCount: 0,
-          totalCards: matching.length,
+          totalCards: shuffled.length,
+          cardIds: shuffled.map((c) => c.id),
+          studyMode: mode,
           savedAt: new Date().toISOString()
         };
         activeSession = fresh;
@@ -224,9 +252,16 @@
     currentStudyDeckId = activeSession.deckId;
     initialStudyIndex = activeSession.currentIndex;
     initialCompletedCount = activeSession.sessionCompletedCount;
+    currentStudyMode = activeSession.studyMode || getDeckStudyMode(activeSession.deckId);
 
     const matching = targetDeck?.filterFn ? allCards.filter(targetDeck.filterFn) : allCards;
-    activeStudyCards = matching;
+    if (activeSession.cardIds && activeSession.cardIds.length > 0) {
+      const cardMap = new Map(matching.map((c) => [c.id, c]));
+      const ordered = activeSession.cardIds.map((id) => cardMap.get(id)).filter(Boolean) as StudyCardItem[];
+      activeStudyCards = ordered.length > 0 ? ordered : matching;
+    } else {
+      activeStudyCards = matching;
+    }
     currentTab = 'study';
   }
 
@@ -235,21 +270,27 @@
     const targetDeck = decks.find((d) => d.id === activeSession!.deckId);
     const deckId = activeSession.deckId;
     const deckTitle = activeSession.deckTitle;
+    const mode = getDeckStudyMode(deckId);
 
     selectedDeckTitle = deckTitle;
     currentStudyDeckId = deckId;
     initialStudyIndex = 0;
     initialCompletedCount = 0;
+    currentStudyMode = mode;
 
     const matching = targetDeck?.filterFn ? allCards.filter(targetDeck.filterFn) : allCards;
-    activeStudyCards = matching;
+    // Nuevo orden aleatorio al reiniciar desde cero
+    const shuffled = shuffleCards(matching);
+    activeStudyCards = shuffled;
 
     const fresh: ActiveStudySession = {
       deckId,
       deckTitle,
       currentIndex: 0,
       sessionCompletedCount: 0,
-      totalCards: matching.length,
+      totalCards: shuffled.length,
+      cardIds: shuffled.map((c) => c.id),
+      studyMode: mode,
       savedAt: new Date().toISOString()
     };
     activeSession = fresh;
@@ -271,6 +312,8 @@
         currentIndex: progress.currentIndex,
         sessionCompletedCount: progress.sessionCompletedCount,
         totalCards: progress.totalCards,
+        cardIds: activeSession?.cardIds || activeStudyCards.map((c) => c.id),
+        studyMode: currentStudyMode,
         savedAt: new Date().toISOString()
       };
       activeSession = updated;
@@ -571,6 +614,7 @@
         <StudyCard
           deckTitle={selectedDeckTitle}
           cards={activeStudyCards}
+          studyMode={currentStudyMode}
           initialIndex={initialStudyIndex}
           initialCompletedCount={initialCompletedCount}
           onRateCard={handleRateCard}

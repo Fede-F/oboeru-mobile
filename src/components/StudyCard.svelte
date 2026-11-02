@@ -16,11 +16,14 @@
     hapticImpactMedium,
     hapticSelection,
     hapticSuccess,
+    hapticWarning,
   } from "../lib/haptics.js";
+  import type { StudyMode } from "../lib/studyMode";
 
   interface Props {
     deckTitle: string;
     cards: StudyCardItem[];
+    studyMode?: StudyMode;
     initialIndex?: number;
     initialCompletedCount?: number;
     onRateCard: (vocabularyId: string, rating: ReviewRating) => Promise<void>;
@@ -33,6 +36,7 @@
   let {
     deckTitle = "Estudio SRS",
     cards = [],
+    studyMode = "jp_to_es",
     initialIndex = 0,
     initialCompletedCount = 0,
     onRateCard,
@@ -48,6 +52,14 @@
   let isSpeaking = $state(false);
   let sessionCompletedCount = $state(initialCompletedCount);
   let isConjugationsModalOpen = $state(false);
+
+  // Determinar la dirección de la tarjeta actual según el modo del mazo
+  let cardDirection = $derived<'jp_to_es' | 'es_to_jp'>(() => {
+    if (studyMode === 'es_to_jp') return 'es_to_jp';
+    if (studyMode === 'jp_to_es') return 'jp_to_es';
+    // Modo mixto: alterna balanceadamente 50/50 por índice
+    return currentIndex % 2 === 1 ? 'es_to_jp' : 'jp_to_es';
+  });
 
   interface ReviewHistoryItem {
     cardIndex: number;
@@ -203,6 +215,14 @@
     }
   }
 
+  async function handleFinishSessionEarly() {
+    await hapticImpactMedium();
+    if (onSessionFinished) {
+      onSessionFinished();
+    }
+    onExitStudy();
+  }
+
   function restartDeckSession() {
     currentIndex = 0;
     sessionCompletedCount = 0;
@@ -240,20 +260,8 @@
             d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"
           />
         </svg>
-        <span class="truncate max-w-[110px]">{deckTitle}</span>
+        <span class="truncate max-w-[130px]">{deckTitle}</span>
       </button>
-
-      {#if historyStack.length > 0}
-        <button
-          type="button"
-          onclick={handleUndoPreviousCard}
-          title="Deshacer y volver a calificar la tarjeta anterior"
-          class="touch-target px-2.5 py-2 rounded-2xl bg-white/10 hover:bg-white/20 active-press text-white/80 hover:text-white text-xs font-bold flex items-center gap-1 transition-colors"
-        >
-          <span>↩</span>
-          <span class="text-[11px] hidden sm:inline">Deshacer</span>
-        </button>
-      {/if}
     </div>
 
     <!-- Controles: Toggle Furigana (<ruby>) & Audio TTS -->
@@ -275,9 +283,16 @@
       {#if currentCard}
         <button
           type="button"
-          onclick={(e) => handlePlayAudio(e)}
-          aria-label="Escuchar pronunciación en japonés"
-          class="touch-target w-11 h-11 rounded-2xl bg-[#171717] text-white active-press flex items-center justify-center transition-colors {isSpeaking
+          onclick={(e) => {
+            if (cardDirection === 'es_to_jp' && !isFlipped) {
+              hapticWarning();
+              return;
+            }
+            handlePlayAudio(e);
+          }}
+          aria-label={cardDirection === 'es_to_jp' && !isFlipped ? 'Volteá la tarjeta para escuchar la pronunciación' : 'Escuchar pronunciación en japonés'}
+          title={cardDirection === 'es_to_jp' && !isFlipped ? 'Volteá la tarjeta para escuchar' : 'Escuchar pronunciación'}
+          class="touch-target w-11 h-11 rounded-2xl bg-[#171717] text-white active-press flex items-center justify-center transition-colors {cardDirection === 'es_to_jp' && !isFlipped ? 'opacity-35' : ''} {isSpeaking
             ? 'bg-[#a7f3d0]/25 text-[#a7f3d0]'
             : ''}"
         >
@@ -332,11 +347,22 @@
     >
       <!-- Cabecera interna de la tarjeta -->
       <div class="flex items-center justify-between text-xs">
-        <span
-          class="px-2.5 py-0.5 rounded-full bg-black/25 text-white font-semibold tracking-wide"
-        >
-          {isFlipped ? "裏 • Respuesta" : "表 • Pregunta"}
-        </span>
+        <div class="flex items-center gap-1.5">
+          <span
+            class="px-2.5 py-0.5 rounded-full bg-black/25 text-white font-semibold tracking-wide"
+          >
+            {#if cardDirection === 'es_to_jp'}
+              {isFlipped ? "裏 • Respuesta (Japonés)" : "表 • Pregunta (Español)"}
+            {:else}
+              {isFlipped ? "裏 • Respuesta (Español)" : "表 • Pregunta (Japonés)"}
+            {/if}
+          </span>
+          {#if studyMode === 'mixed'}
+            <span class="text-[10px] px-2 py-0.5 rounded-md bg-white/10 text-white/80 font-bold">
+              {cardDirection === 'es_to_jp' ? 'ES → JP' : 'JP → ES'}
+            </span>
+          {/if}
+        </div>
 
         <span class="text-[11px] text-white/75 font-medium">
           {currentCard.review.state === "new"
@@ -348,34 +374,66 @@
       </div>
 
       {#if !isFlipped}
-        <!-- FRENTE: Palabra en Japonés (Kanji o Kana) centrada -->
-        <div
-          class="my-auto py-4 flex flex-col items-center justify-center text-center"
-        >
+        {#if cardDirection === 'es_to_jp'}
+          <!-- FRENTE: Modo Español -> Japonés (Producción / Memoria Activa) -->
           <div
-            bind:this={frontWordContainer}
-            class="text-4xl sm:text-5xl font-bold text-white tracking-wide leading-relaxed select-text"
+            class="my-auto py-4 flex flex-col items-center justify-center text-center space-y-2.5"
           >
-            {stripRubyTags(currentCard.kanji || currentCard.reading)}
+            <span
+              class="text-[10px] uppercase tracking-widest text-[#a7f3d0] font-extrabold bg-[#a7f3d0]/15 px-3 py-1 rounded-full border border-[#a7f3d0]/30"
+            >
+              ¿Cómo se dice en japonés?
+            </span>
+            <p
+              class="text-2xl sm:text-3xl font-extrabold text-white tracking-wide leading-snug line-clamp-3 select-text px-2"
+            >
+              {currentCard.meaning_es}
+            </p>
+            {#if currentCard.meaning_en}
+              <p class="text-xs text-white/60 italic line-clamp-1">
+                EN: {currentCard.meaning_en}
+              </p>
+            {/if}
           </div>
 
-          {#if !currentCard.kanji}
-            <span
-              class="mt-2 text-[11px] uppercase tracking-widest text-white/70 font-semibold"
+          <!-- Pie del Frente: Instrucción táctil -->
+          <div class="text-center pt-2 border-t border-white/10">
+            <p
+              class="text-[11px] text-white/75 font-medium flex items-center justify-center gap-1.5"
             >
-              Palabra en Kana
-            </span>
-          {/if}
-        </div>
-
-        <!-- Pie del Frente: Instrucción táctil -->
-        <div class="text-center pt-2 border-t border-white/10">
-          <p
-            class="text-[11px] text-white/75 font-medium flex items-center justify-center gap-1.5"
+              <span>Tocá la tarjeta para revelar la palabra en japonés</span>
+            </p>
+          </div>
+        {:else}
+          <!-- FRENTE: Modo Japonés -> Español (Reconocimiento / Lectura) -->
+          <div
+            class="my-auto py-4 flex flex-col items-center justify-center text-center"
           >
-            <span>Tocá la tarjeta para revelar significado y ejemplo</span>
-          </p>
-        </div>
+            <div
+              bind:this={frontWordContainer}
+              class="text-4xl sm:text-5xl font-bold text-white tracking-wide leading-relaxed select-text"
+            >
+              {stripRubyTags(currentCard.kanji || currentCard.reading)}
+            </div>
+
+            {#if !currentCard.kanji}
+              <span
+                class="mt-2 text-[11px] uppercase tracking-widest text-white/70 font-semibold"
+              >
+                Palabra en Kana
+              </span>
+            {/if}
+          </div>
+
+          <!-- Pie del Frente: Instrucción táctil -->
+          <div class="text-center pt-2 border-t border-white/10">
+            <p
+              class="text-[11px] text-white/75 font-medium flex items-center justify-center gap-1.5"
+            >
+              <span>Tocá la tarjeta para revelar significado y ejemplo</span>
+            </p>
+          </div>
+        {/if}
       {:else}
         <!-- REVERSO: Traducción, Romaji y Oración de Ejemplo (Tatoeba) -->
         <div class="my-auto py-1.5 space-y-2.5">
@@ -471,23 +529,9 @@
     <!-- ====================================================================== -->
     <div class="pt-1 space-y-1.5">
       {#if isFlipped}
-        <div class="flex items-center justify-between px-1 animate-fade-in">
-          <p class="text-xs font-medium text-white/80">
-            ¿Qué tan bien recordaste esta palabra?
-          </p>
-
-          {#if historyStack.length > 0}
-            <button
-              type="button"
-              onclick={handleUndoPreviousCard}
-              title="Volver a calificar la tarjeta anterior"
-              class="px-2.5 py-1 rounded-full bg-white/10 hover:bg-white/20 active-press text-[11px] font-bold text-white/80 flex items-center gap-1 transition-colors"
-            >
-              <span>↩</span>
-              <span>Anterior</span>
-            </button>
-          {/if}
-        </div>
+        <p class="text-center text-xs font-medium text-white/80 animate-fade-in">
+          ¿Qué tan bien recordaste esta palabra?
+        </p>
       {/if}
 
       <div class="grid grid-cols-4 gap-2">
@@ -545,6 +589,34 @@
           <span class="text-xs font-bold text-white mt-1 leading-none">
             Fácil
           </span>
+        </button>
+      </div>
+
+      <!-- Fila de Acciones Secundarias: Tarjeta anterior y Finalizar sesión -->
+      <div class="flex items-center gap-2 pt-1.5">
+        <button
+          type="button"
+          onclick={handleUndoPreviousCard}
+          disabled={historyStack.length === 0}
+          title="Volver a calificar la tarjeta anterior"
+          class="flex-1 touch-target py-2.5 px-3 rounded-2xl bg-[#171c20] hover:bg-[#1f262b] active-press text-xs font-bold flex items-center justify-center gap-1.5 transition-all border border-white/5 disabled:opacity-30 disabled:pointer-events-none text-white/80 hover:text-white"
+        >
+          <svg class="w-4 h-4 text-white/70" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
+          </svg>
+          <span>Tarjeta anterior</span>
+        </button>
+
+        <button
+          type="button"
+          onclick={handleFinishSessionEarly}
+          title="Terminar la sesión de estudio actual y guardar progreso"
+          class="flex-1 touch-target py-2.5 px-3 rounded-2xl bg-[#171c20] hover:bg-rose-500/20 active-press text-xs font-bold flex items-center justify-center gap-1.5 transition-all border border-white/5 text-rose-300 hover:text-rose-200"
+        >
+          <svg class="w-4 h-4 text-rose-300" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+          <span>Finalizar sesión</span>
         </button>
       </div>
     </div>

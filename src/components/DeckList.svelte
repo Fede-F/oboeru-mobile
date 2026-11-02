@@ -3,6 +3,7 @@
   import type { DeckSummary } from '../lib/db/schema';
   import type { HeatmapDayCell } from '../lib/db/database';
   import { deleteCustomUserDeck, duplicateDeckToCustom } from '../lib/db/database';
+  import { getDeckStudyMode, setDeckStudyMode, STUDY_MODE_DETAILS, type StudyMode } from '../lib/studyMode';
   import StudyHeatmap from './StudyHeatmap.svelte';
   import {
     hapticImpactLight,
@@ -55,6 +56,8 @@
   let targetDeck = $state<DeckSummary | null>(null);
   let showActionMenu = $state(false);
   let showDeleteConfirm = $state(false);
+  let showStudyModeModal = $state(false);
+  let currentDeckMode = $state<StudyMode>('jp_to_es');
   let isDeleting = $state(false);
   let isDuplicating = $state(false);
 
@@ -85,6 +88,7 @@
       longPressFired = true;
       await hapticImpactMedium();
       targetDeck = deck;
+      currentDeckMode = getDeckStudyMode(deck.id);
       showActionMenu = true;
     }, 520);
   }
@@ -118,6 +122,17 @@
   function closeMenu() {
     showActionMenu = false;
     showDeleteConfirm = false;
+    showStudyModeModal = false;
+    targetDeck = null;
+  }
+
+  async function selectStudyMode(mode: StudyMode) {
+    if (!targetDeck) return;
+    await hapticSuccess();
+    setDeckStudyMode(targetDeck.id, mode);
+    currentDeckMode = mode;
+    showStudyModeModal = false;
+    showActionMenu = false;
     targetDeck = null;
   }
 
@@ -658,7 +673,36 @@
             </button>
           {/if}
 
-          <!-- 2. Duplicar Mazo (disponible para todos: por defecto y propios) -->
+          <!-- 2. Modo de Estudio (Disponible para TODOS los mazos) -->
+          <button
+            type="button"
+            onclick={() => {
+              showActionMenu = false;
+              showStudyModeModal = true;
+            }}
+            class="w-full min-h-[64px] px-4 py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-left active-press flex items-center justify-between transition-colors border border-transparent hover:border-white/10"
+          >
+            <div class="flex items-center gap-3.5 flex-1 min-w-0">
+              <div class="w-10 h-10 rounded-xl bg-purple-500/15 text-purple-400 flex items-center justify-center text-lg shrink-0">
+                🔀
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2">
+                  <span class="text-sm font-bold text-white block truncate leading-snug">Modo de estudio</span>
+                  <span class="text-[10px] font-extrabold text-[#a7f3d0] bg-[#a7f3d0]/10 px-2 py-0.5 rounded-full shrink-0">
+                    {STUDY_MODE_DETAILS[currentDeckMode].badge}
+                  </span>
+                </div>
+                <span class="text-[11px] text-white/60 block truncate leading-normal mt-0.5">
+                  {STUDY_MODE_DETAILS[currentDeckMode].label}
+                </span>
+              </div>
+            </div>
+
+            <span class="text-white/40 text-lg font-bold shrink-0 ml-3">›</span>
+          </button>
+
+          <!-- 3. Duplicar Mazo (disponible para todos: por defecto y propios) -->
           <button
             type="button"
             onclick={handleDuplicateDeck}
@@ -682,7 +726,7 @@
             {/if}
           </button>
 
-          <!-- 3. Eliminar Mazo (solo disponible para mazos propios) -->
+          <!-- 4. Eliminar Mazo (solo disponible para mazos propios) -->
           {#if targetDeck.isCustom}
             <button
               type="button"
@@ -709,6 +753,79 @@
           type="button"
           onclick={closeMenu}
           class="w-full h-11 rounded-2xl bg-white/5 hover:bg-white/10 text-white/70 hover:text-white font-bold text-xs active-press flex items-center justify-center text-center mt-2.5 transition-colors"
+        >
+          Cerrar
+        </button>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Modal para Elegir Modo de Estudio del Mazo -->
+  {#if showStudyModeModal && targetDeck}
+    <div
+      class="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-5"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="study-mode-title"
+    >
+      <div class="bg-[#181d22] border border-white/10 rounded-[30px] p-6 max-w-sm w-full shadow-2xl space-y-4">
+        <div class="flex items-center justify-between pb-1 border-b border-white/10">
+          <div>
+            <span class="text-[10px] uppercase tracking-wider text-[#a7f3d0] font-extrabold">Configuración de estudio</span>
+            <h3 id="study-mode-title" class="text-base font-extrabold text-white mt-0.5 truncate max-w-[220px]">
+              {targetDeck.title}
+            </h3>
+          </div>
+          <button
+            type="button"
+            onclick={() => (showStudyModeModal = false)}
+            class="touch-target p-1.5 rounded-full text-white/50 hover:text-white hover:bg-white/10 active-press transition-colors"
+          >
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <p class="text-xs text-white/70 leading-relaxed">
+          Elegí cómo querés que aparezcan las tarjetas al estudiar este mazo:
+        </p>
+
+        <div class="space-y-2.5">
+          {#each (['jp_to_es', 'es_to_jp', 'mixed'] as const) as mode}
+            {@const details = STUDY_MODE_DETAILS[mode]}
+            {@const isSelected = currentDeckMode === mode}
+            <button
+              type="button"
+              onclick={() => selectStudyMode(mode)}
+              class="w-full p-3.5 rounded-2xl text-left transition-all active-press flex items-start gap-3 border {isSelected
+                ? 'bg-[#a7f3d0]/15 border-[#a7f3d0] text-white shadow-md'
+                : 'bg-white/5 border-transparent hover:border-white/10 text-white/80 hover:text-white'}"
+            >
+              <div class="text-2xl shrink-0 mt-0.5">
+                {details.icon}
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-bold leading-tight {isSelected ? 'text-[#a7f3d0]' : 'text-white'}">
+                    {details.label}
+                  </span>
+                  {#if isSelected}
+                    <span class="w-2 h-2 rounded-full bg-[#a7f3d0] shrink-0"></span>
+                  {/if}
+                </div>
+                <p class="text-[11px] text-white/60 leading-snug mt-1">
+                  {details.description}
+                </p>
+              </div>
+            </button>
+          {/each}
+        </div>
+
+        <button
+          type="button"
+          onclick={() => (showStudyModeModal = false)}
+          class="w-full h-11 rounded-2xl bg-white/5 hover:bg-white/10 text-white/70 hover:text-white font-bold text-xs active-press flex items-center justify-center text-center mt-3 transition-colors"
         >
           Cerrar
         </button>
