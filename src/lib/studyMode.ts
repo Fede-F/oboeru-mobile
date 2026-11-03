@@ -54,3 +54,46 @@ export const STUDY_MODE_DETAILS: Record<
     badge: 'Mixto'
   }
 };
+
+const LAST_STUDIED_PREFIX = 'oboeru_deck_last_studied_';
+const LAST_STUDIED_MAP_KEY = 'oboeru_decks_last_studied_map';
+
+export function getDeckLastStudied(deckId: string): string | null {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    const direct = localStorage.getItem(`${LAST_STUDIED_PREFIX}${deckId}`);
+    if (direct) return direct;
+    const mapStr = localStorage.getItem(LAST_STUDIED_MAP_KEY);
+    if (mapStr) {
+      const map = JSON.parse(mapStr);
+      return map[deckId] || null;
+    }
+  } catch {
+    // fallback
+  }
+  return null;
+}
+
+export function setDeckLastStudied(deckId: string, timestamp?: string): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    const time = timestamp || new Date().toISOString();
+    localStorage.setItem(`${LAST_STUDIED_PREFIX}${deckId}`, time);
+    const mapStr = localStorage.getItem(LAST_STUDIED_MAP_KEY);
+    const map = mapStr ? JSON.parse(mapStr) : {};
+    map[deckId] = time;
+    localStorage.setItem(LAST_STUDIED_MAP_KEY, JSON.stringify(map));
+  } catch {
+    // ignore
+  }
+}
+
+export function getAllDecksLastStudied(): Record<string, string> {
+  try {
+    if (typeof localStorage === 'undefined') return {};
+    const mapStr = localStorage.getItem(LAST_STUDIED_MAP_KEY);
+    return mapStr ? JSON.parse(mapStr) : {};
+  } catch {
+    return {};
+  }
+}

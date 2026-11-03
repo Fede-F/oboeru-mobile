@@ -32,7 +32,7 @@
   } from '../lib/db/database';
   import type { DeckSummary, ReviewRating, SrsReviewRecord, StudyCardItem } from '../lib/db/schema';
   import { syncManager, syncState, type SyncStatusState } from '../lib/sync/SyncManager';
-  import { getDeckStudyMode, type StudyMode } from '../lib/studyMode';
+  import { getDeckStudyMode, setDeckLastStudied, type StudyMode } from '../lib/studyMode';
 
   type ActiveTab = 'dashboard' | 'create-deck' | 'edit-deck' | 'add-words' | 'study' | 'search' | 'sync';
 
@@ -240,6 +240,7 @@
   function handleSelectDeck(deck: DeckSummary) {
     selectedDeckTitle = deck.title;
     currentStudyDeckId = deck.id;
+    setDeckLastStudied(deck.id);
     const matching = deck.filterFn ? allCards.filter(deck.filterFn) : allCards;
     const now = new Date();
     const endOfTodayMs = new Date(
@@ -295,6 +296,7 @@
 
   function resumeCurrentSession() {
     if (!activeSession) return;
+    setDeckLastStudied(activeSession.deckId);
     const targetDeck = decks.find((d) => d.id === activeSession!.deckId);
     selectedDeckTitle = activeSession.deckTitle;
     currentStudyDeckId = activeSession.deckId;
@@ -315,6 +317,7 @@
 
   function restartCurrentSession() {
     if (!activeSession) return;
+    setDeckLastStudied(activeSession.deckId);
     const targetDeck = decks.find((d) => d.id === activeSession!.deckId);
     const deckId = activeSession.deckId;
     const deckTitle = activeSession.deckTitle;
@@ -354,6 +357,7 @@
 
   function handleSessionProgress(progress: { currentIndex: number; sessionCompletedCount: number; totalCards: number }) {
     if (currentStudyDeckId && progress.currentIndex < progress.totalCards) {
+      setDeckLastStudied(currentStudyDeckId);
       const updated: ActiveStudySession = {
         deckId: currentStudyDeckId,
         deckTitle: selectedDeckTitle,
@@ -384,6 +388,9 @@
   }
 
   async function handleRateCard(vocabularyId: string, rating: ReviewRating) {
+    if (currentStudyDeckId) {
+      setDeckLastStudied(currentStudyDeckId);
+    }
     await recordLocalCardReview(vocabularyId, rating, syncManager.getUserId());
     await refreshLocalData();
     syncManager.tryAutoSync().catch(() => {});

@@ -135,8 +135,7 @@
     showFurigana = !showFurigana;
   }
 
-  async function handlePlayAudio(e: Event, textToSpeak?: string) {
-    e.stopPropagation();
+  async function handlePlayAudio(textToSpeak?: string) {
     if (!currentCard) return;
     hapticImpactLight().catch(() => {});
     isSpeaking = true;
@@ -287,12 +286,12 @@
       {#if currentCard}
         <button
           type="button"
-          onclick={(e) => {
+          onclick={() => {
             if (cardDirection === 'es_to_jp' && !isFlipped) {
               hapticWarning();
               return;
             }
-            handlePlayAudio(e);
+            handlePlayAudio();
           }}
           aria-label={cardDirection === 'es_to_jp' && !isFlipped ? 'Volteá la tarjeta para escuchar la pronunciación' : 'Escuchar pronunciación en japonés'}
           title={cardDirection === 'es_to_jp' && !isFlipped ? 'Volteá la tarjeta para escuchar' : 'Escuchar pronunciación'}
@@ -338,20 +337,22 @@
       {#key currentIndex}
         <div class={slideDirection === 'right' ? 'slide-card-right' : 'slide-card-left'}>
           <div
-            role="button"
-            tabindex="0"
-            onclick={handleCardFlip}
-            onkeydown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                handleCardFlip();
-              }
-            }}
-            aria-label="Tocar el centro de la tarjeta para girar"
-            class="flip-card-inner active-press {isFlipped ? 'is-flipped' : ''} {showFurigana ? '' : 'furigana-hidden'}"
+            class="flip-card-inner {isFlipped ? 'is-flipped' : ''} {showFurigana ? '' : 'furigana-hidden'}"
           >
             <!-- ================= CARA FRONTAL (FRENTE / PREGUNTA) ================= -->
-            <div class="flip-face flip-face-front bg-gradient-to-br from-[#43534a] via-[#2f3b35] to-[#1a231f] shadow-2xl p-4 sm:p-5 flex flex-col justify-between">
+            <div
+              role="button"
+              tabindex="0"
+              onclick={handleCardFlip}
+              onkeydown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  handleCardFlip();
+                }
+              }}
+              aria-label="Tocar el centro de la tarjeta para girar"
+              class="flip-face flip-face-front active-press bg-gradient-to-br from-[#43534a] via-[#2f3b35] to-[#1a231f] shadow-2xl p-4 sm:p-5 flex flex-col justify-between cursor-pointer select-none"
+            >
               <!-- Cabecera interna del frente -->
               <div class="flex items-center justify-between text-xs">
                 <div class="flex items-center gap-1.5">
@@ -498,15 +499,13 @@
                     <span class="text-white/20 select-none">•</span>
                     <button
                       type="button"
-                      onpointerdown={(e) => e.stopPropagation()}
-                      onclick={(e) => {
-                        e.stopPropagation();
+                      onclick={() => {
                         isConjugationsModalOpen = true;
                       }}
                       class="touch-target px-3 py-1 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 active-press border border-emerald-400/50 text-emerald-300 text-xs font-bold flex items-center gap-1 shadow-sm"
                     >
-                      <span class="pointer-events-none">Ver conjugaciones</span>
-                      <span class="text-[10px] opacity-80 pointer-events-none">↗</span>
+                      <span>Ver conjugaciones</span>
+                      <span class="text-[10px] opacity-80">↗</span>
                     </button>
                   </div>
                 {/if}
@@ -524,12 +523,11 @@
                       </span>
                       <button
                         type="button"
-                        onpointerdown={(e) => e.stopPropagation()}
-                        onclick={(e) => handlePlayAudio(e, parsedExample.jpPlain)}
+                        onclick={() => handlePlayAudio(parsedExample.jpPlain)}
                         class="touch-target px-2.5 py-1 rounded-full bg-white/20 hover:bg-white/30 active-press text-[11px] font-semibold text-white flex items-center gap-1.5 shadow-sm"
                       >
-                        <span class="pointer-events-none">🔊</span>
-                        <span class="pointer-events-none">Escuchar</span>
+                        <span>🔊</span>
+                        <span>Escuchar</span>
                       </button>
                     </div>
 
@@ -549,13 +547,16 @@
                 {/if}
               </div>
 
-              <!-- Pie del Reverso: Instrucción para volver al frente -->
+              <!-- Pie del Reverso: Botón para volver al frente -->
               <div class="text-center pt-1.5 border-t border-white/10">
-                <p
-                  class="text-[10px] text-white/60 font-medium flex items-center justify-center gap-1.5"
+                <button
+                  type="button"
+                  onclick={handleCardFlip}
+                  class="touch-target text-[10px] text-white/60 hover:text-white/90 active-press font-medium flex items-center justify-center gap-1.5 mx-auto py-1"
                 >
-                  <span>Tocá la tarjeta para volver a la pregunta</span>
-                </p>
+                  <span>Tocá aquí para volver a la pregunta</span>
+                  <span class="text-xs">↺</span>
+                </button>
               </div>
             </div>
           </div>

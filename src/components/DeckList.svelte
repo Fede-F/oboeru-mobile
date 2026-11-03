@@ -44,13 +44,27 @@
   }: Props = $props();
 
   type SortCriterion = 'created' | 'name' | 'due' | 'size';
-  type OwnershipFilter = 'all' | 'mine';
+  type OwnershipFilter = 'all' | 'recent' | 'mine';
 
   const OWNERSHIP_STORAGE_KEY = 'oboeru_decks_ownership_filter';
 
+  function getInitialFilter(): OwnershipFilter {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const saved = localStorage.getItem(OWNERSHIP_STORAGE_KEY);
+        if (saved === 'all' || saved === 'recent' || saved === 'mine') {
+          return saved as OwnershipFilter;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return 'all';
+  }
+
   let sortBy = $state<SortCriterion>('created');
   let sortDirection = $state<'asc' | 'desc'>('desc');
-  let ownershipFilter = $state<OwnershipFilter>('all');
+  let ownershipFilter = $state<OwnershipFilter>(getInitialFilter());
 
   // Estado para submenú contextual (long-press) y acciones
   let targetDeck = $state<DeckSummary | null>(null);
@@ -64,8 +78,8 @@
   onMount(() => {
     try {
       const saved = localStorage.getItem(OWNERSHIP_STORAGE_KEY);
-      if (saved === 'all' || saved === 'mine') {
-        ownershipFilter = saved;
+      if (saved === 'all' || saved === 'recent' || saved === 'mine') {
+        ownershipFilter = saved as OwnershipFilter;
       }
     } catch {
       // Ignorar restricciones de storage local si aplican
@@ -196,10 +210,19 @@
   ];
 
   let customDeckCount = $derived(decks.filter((d) => d.isCustom).length);
+  let recentDecks = $derived(decks.filter((d) => Boolean(d.lastStudiedAt)));
+  let recentDeckCount = $derived(recentDecks.length);
 
   let sortedDecks = $derived.by(() => {
-    const filtered =
-      ownershipFilter === 'mine' ? decks.filter((d) => Boolean(d.isCustom)) : [...decks];
+    let filtered: DeckSummary[];
+    if (ownershipFilter === 'mine') {
+      filtered = decks.filter((d) => Boolean(d.isCustom));
+    } else if (ownershipFilter === 'recent') {
+      filtered = decks.filter((d) => Boolean(d.lastStudiedAt));
+    } else {
+      filtered = [...decks];
+    }
+
     const dir = sortDirection === 'asc' ? 1 : -1;
 
     filtered.sort((a, b) => {
@@ -212,6 +235,11 @@
           return (a.totalCards - b.totalCards) * dir;
         case 'created':
         default: {
+          if (ownershipFilter === 'recent') {
+            const tA = a.lastStudiedAt ? new Date(a.lastStudiedAt).getTime() : 0;
+            const tB = b.lastStudiedAt ? new Date(b.lastStudiedAt).getTime() : 0;
+            return (tA - tB) * dir;
+          }
           const tA = new Date(a.createdAt || 0).getTime();
           const tB = new Date(b.createdAt || 0).getTime();
           return (tA - tB) * dir;
@@ -279,6 +307,22 @@
       month: 'short',
       year: 'numeric'
     });
+  }
+
+  function formatRelativeOrDate(isoDate?: string | null): string {
+    if (!isoDate) return '';
+    const d = new Date(isoDate);
+    if (Number.isNaN(d.getTime())) return '';
+    const diffMs = Date.now() - d.getTime();
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    if (diffMins < 1) return 'Estudiado recién';
+    if (diffMins < 60) return `Estudiado hace ${diffMins} min`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `Estudiado hace ${diffHours} h`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays === 1) return 'Estudiado ayer';
+    if (diffDays < 7) return `Estudiado hace ${diffDays} d`;
+    return `Estudiado el ${d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })}`;
   }
 
   function getDeckCardStyle(variant: DeckSummary['accentVariant']): string {
@@ -382,7 +426,7 @@
   <!-- Lista de Mazos Alineados en Grilla de 2 Columnas con Ordenamiento y Scroll -->
   <section aria-label="Mazos de estudio" class="space-y-3">
     <div class="flex flex-col gap-2.5 px-1">
-      <div class="flex items-center justify-between gap-2">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
           <h3 class="text-xs font-bold uppercase tracking-wider text-white/80">
             Mazos Disponibles ({sortedDecks.length})
@@ -392,11 +436,11 @@
           </span>
         </div>
 
-        <!-- Filtro de Autoría: Todos vs Míos -->
+        <!-- Filtro: Todos vs Recientes vs Míos -->
         <div
           role="group"
-          aria-label="Filtrar mazos por autor"
-          class="inline-flex items-center p-0.5 rounded-full bg-[#161b20] shrink-0"
+          aria-label="Filtrar mazos por autor o estudio reciente"
+          class="inline-flex items-center p-0.5 rounded-full bg-[#161b20] self-start sm:self-auto shrink-0"
         >
           <button
             type="button"
@@ -407,6 +451,17 @@
               : 'text-white/60 hover:text-white'}"
           >
             Todos ({decks.length})
+          </button>
+          <button
+            type="button"
+            onclick={() => handleOwnershipFilter('recent')}
+            aria-pressed={ownershipFilter === 'recent'}
+            title="Últimos estudiados"
+            class="px-3 py-1 rounded-full text-[11px] font-bold transition-all active-press {ownershipFilter === 'recent'
+              ? 'bg-white text-slate-950 shadow-sm'
+              : 'text-white/60 hover:text-white'}"
+          >
+            Recientes ({recentDeckCount})
           </button>
           <button
             type="button"
@@ -443,180 +498,204 @@
       </div>
     </div>
 
-    <!-- Carrusel Horizontal de Mazos Deslizable de Derecha a Izquierda (Snap) -->
-    <div
-      bind:this={carouselEl}
-      onscroll={handleCarouselScroll}
-      class="flex w-full overflow-x-auto snap-x snap-mandatory scroll-smooth pb-1"
-      style="scrollbar-width: none; -ms-overflow-style: none; -webkit-overflow-scrolling: touch;"
-    >
-      {#each deckPages as page, pageIndex (pageIndex)}
-        <div class="w-full shrink-0 snap-center grid grid-cols-2 gap-3.5 items-stretch px-0.5">
-          {#each page as item (item.type === 'deck' ? item.deck.id : 'create-deck-card')}
-            {#if item.type === 'deck'}
-              {@const deck = item.deck}
-              <button
-                type="button"
-                onpointerdown={(e) => handlePointerDown(e, deck)}
-                onpointermove={handlePointerMove}
-                onpointerup={handlePointerUpOrLeave}
-                onpointerleave={handlePointerUpOrLeave}
-                oncontextmenu={(e) => e.preventDefault()}
-                onclick={() => handleCardClick(deck)}
-                class="w-full h-[196px] text-left rounded-[26px] p-4 shadow-lg active-press transition-all flex flex-col justify-between select-none {getDeckCardStyle(deck.accentVariant)}"
-              >
-                <!-- Cabecera: Nombre del mazo + Fecha chiquita (sin 3 puntos) -->
-                <div class="flex items-start justify-between gap-2">
-                  <div class="min-w-0">
-                    <h4 class="text-sm font-bold text-white leading-tight line-clamp-1">
-                      {deck.title}
-                    </h4>
-                    {#if deck.createdAt}
-                      <span class="block text-[10px] text-white/60 mt-0.5 font-medium">
-                        {formatDeckCreatedDate(deck.createdAt)}
-                      </span>
-                    {/if}
-                  </div>
-                </div>
-
-                <!-- Cuerpo Central: Total de Palabras y Para Hoy + Barra de Progreso Sutil -->
-                <div class="my-auto space-y-3">
-                  <div class="flex items-end justify-between">
-                    <div>
-                      <span class="text-2xl font-extrabold text-white leading-none block">
-                        {deck.totalCards}
-                      </span>
-                      <span class="text-[10px] text-white/60 font-medium block mt-0.5">
-                        Palabras
-                      </span>
+    {#if ownershipFilter === 'recent' && sortedDecks.length === 0}
+      <!-- Estado Vacío cuando no se ha estudiado ningún mazo todavía -->
+      <div class="rounded-[26px] bg-[#161b20] p-6 text-center space-y-3 my-2 border border-white/5">
+        <div class="w-12 h-12 mx-auto rounded-full bg-white/10 flex items-center justify-center text-xl">
+          📖
+        </div>
+        <h4 class="text-sm font-bold text-white">No hay mazos estudiados todavía</h4>
+        <p class="text-xs text-white/60 max-w-xs mx-auto leading-relaxed">
+          Comenzá a practicar cualquier mazo y aparecerá automáticamente en esta lista.
+        </p>
+        <button
+          type="button"
+          onclick={() => handleOwnershipFilter('all')}
+          class="px-4 py-2 rounded-full bg-white text-slate-950 text-xs font-bold active-press shadow-sm inline-flex items-center gap-1.5"
+        >
+          <span>Ver todos los mazos</span>
+        </button>
+      </div>
+    {:else}
+      <!-- Carrusel Horizontal de Mazos Deslizable de Derecha a Izquierda (Snap) -->
+      <div
+        bind:this={carouselEl}
+        onscroll={handleCarouselScroll}
+        class="flex w-full overflow-x-auto snap-x snap-mandatory scroll-smooth pb-1"
+        style="scrollbar-width: none; -ms-overflow-style: none; -webkit-overflow-scrolling: touch;"
+      >
+        {#each deckPages as page, pageIndex (pageIndex)}
+          <div class="w-full shrink-0 snap-center grid grid-cols-2 gap-3.5 items-stretch px-0.5">
+            {#each page as item (item.type === 'deck' ? item.deck.id : 'create-deck-card')}
+              {#if item.type === 'deck'}
+                {@const deck = item.deck}
+                <button
+                  type="button"
+                  onpointerdown={(e) => handlePointerDown(e, deck)}
+                  onpointermove={handlePointerMove}
+                  onpointerup={handlePointerUpOrLeave}
+                  onpointerleave={handlePointerUpOrLeave}
+                  oncontextmenu={(e) => e.preventDefault()}
+                  onclick={() => handleCardClick(deck)}
+                  class="w-full h-[196px] text-left rounded-[26px] p-4 shadow-lg active-press transition-all flex flex-col justify-between select-none {getDeckCardStyle(deck.accentVariant)}"
+                >
+                  <!-- Cabecera: Nombre del mazo + Fecha chiquita (sin 3 puntos) -->
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0">
+                      <h4 class="text-sm font-bold text-white leading-tight line-clamp-1">
+                        {deck.title}
+                      </h4>
+                      {#if ownershipFilter === 'recent' && deck.lastStudiedAt}
+                        <span class="block text-[10px] text-emerald-300 mt-0.5 font-medium truncate">
+                          {formatRelativeOrDate(deck.lastStudiedAt)}
+                        </span>
+                      {:else if deck.createdAt}
+                        <span class="block text-[10px] text-white/60 mt-0.5 font-medium truncate">
+                          {formatDeckCreatedDate(deck.createdAt)}
+                        </span>
+                      {/if}
                     </div>
+                  </div>
 
-                    <div class="text-right">
-                      <div class="flex items-center justify-end gap-1">
-                        {#if deck.dueCards === 0 && deck.totalCards > 0}
-                          <span class="text-xs text-emerald-400 font-bold">✓</span>
-                        {/if}
-                        <span class="text-lg font-extrabold {deck.dueCards === 0 && deck.totalCards > 0 ? 'text-emerald-300' : 'text-white'} leading-none block">
-                          {deck.dueCards}
+                  <!-- Cuerpo Central: Total de Palabras y Para Hoy + Barra de Progreso Sutil -->
+                  <div class="my-auto space-y-3">
+                    <div class="flex items-end justify-between">
+                      <div>
+                        <span class="text-2xl font-extrabold text-white leading-none block">
+                          {deck.totalCards}
+                        </span>
+                        <span class="text-[10px] text-white/60 font-medium block mt-0.5">
+                          Palabras
                         </span>
                       </div>
-                      <span class="text-[10px] {deck.dueCards === 0 && deck.totalCards > 0 ? 'text-emerald-300/90 font-bold' : 'text-white/60 font-medium'} block mt-0.5">
-                        {deck.dueCards === 0 && deck.totalCards > 0 ? 'Al día' : 'Para hoy'}
+
+                      <div class="text-right">
+                        <div class="flex items-center justify-end gap-1">
+                          {#if deck.dueCards === 0 && deck.totalCards > 0}
+                            <span class="text-xs text-emerald-400 font-bold">✓</span>
+                          {/if}
+                          <span class="text-lg font-extrabold {deck.dueCards === 0 && deck.totalCards > 0 ? 'text-emerald-300' : 'text-white'} leading-none block">
+                            {deck.dueCards}
+                          </span>
+                        </div>
+                        <span class="text-[10px] {deck.dueCards === 0 && deck.totalCards > 0 ? 'text-emerald-300/90 font-bold' : 'text-white/60 font-medium'} block mt-0.5">
+                          {deck.dueCards === 0 && deck.totalCards > 0 ? 'Al día' : 'Para hoy'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <!-- Barra de Progreso Sutil integrada con el color del mazo -->
+                    <div class="space-y-1">
+                      <div class="w-full h-1.5 rounded-full bg-black/25 overflow-hidden">
+                        <div
+                          class="h-full rounded-full transition-all duration-500 {getDeckProgressBarColor(deck.accentVariant)}"
+                          style="width: {getDeckProgressPercent(deck)}%"
+                        ></div>
+                      </div>
+                      <div class="flex items-center justify-between text-[9px] text-white/50 font-medium">
+                        <span>Progreso</span>
+                        <span>{getDeckProgressPercent(deck)}%</span>
+                      </div>
+
+                      {#if deck.dueCards === 0 && deck.totalCards > 0}
+                        <p class="text-[9.5px] text-emerald-300/90 font-bold tracking-tight text-right flex items-center justify-end gap-1 pt-0.5">
+                          <span>✨</span>
+                          <span>Al día • Sin repasos hoy</span>
+                        </p>
+                      {/if}
+                    </div>
+                  </div>
+
+                  <!-- Pie del Mazo: Etiqueta JP | ES y botón circular mate (solo en mazos propios) -->
+                  <div class="flex items-center justify-between pt-1">
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-white/55 truncate">
+                      {deck.isCustom ? 'JP | MÍO' : 'JP | ES'}
+                    </span>
+
+                    {#if deck.isCustom}
+                      <button
+                        type="button"
+                        onclick={async (e) => {
+                          e.stopPropagation();
+                          await hapticImpactLight();
+                          if (onOpenAddWords) {
+                            onOpenAddWords(deck);
+                          }
+                        }}
+                        title="Agregar palabras a este mazo"
+                        aria-label="Agregar palabras a este mazo"
+                        class="w-7 h-7 rounded-full bg-white/20 hover:bg-white/35 active-press flex items-center justify-center text-white transition-all shadow-sm shrink-0"
+                      >
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                        </svg>
+                      </button>
+                    {/if}
+                  </div>
+                </button>
+              {:else}
+                <!-- Card: Crear un nuevo mazo personalizado -->
+                <button
+                  type="button"
+                  onclick={handleCreateNew}
+                  class="w-full h-[196px] text-left rounded-[26px] p-4 bg-[#171c20] hover:bg-[#1e252a] shadow-lg active-press transition-all flex flex-col justify-between group select-none"
+                >
+                  <div class="flex items-start justify-between">
+                    <div>
+                      <h4 class="text-sm font-bold text-white leading-tight">
+                        Crear mazo
+                      </h4>
+                      <span class="block text-[10px] text-white/60 mt-0.5 font-medium">
+                        Personalizado
                       </span>
                     </div>
                   </div>
 
-                  <!-- Barra de Progreso Sutil integrada con el color del mazo -->
-                  <div class="space-y-1">
-                    <div class="w-full h-1.5 rounded-full bg-black/25 overflow-hidden">
-                      <div
-                        class="h-full rounded-full transition-all duration-500 {getDeckProgressBarColor(deck.accentVariant)}"
-                        style="width: {getDeckProgressPercent(deck)}%"
-                      ></div>
-                    </div>
-                    <div class="flex items-center justify-between text-[9px] text-white/50 font-medium">
-                      <span>Progreso</span>
-                      <span>{getDeckProgressPercent(deck)}%</span>
-                    </div>
-
-                    {#if deck.dueCards === 0 && deck.totalCards > 0}
-                      <p class="text-[9.5px] text-emerald-300/90 font-bold tracking-tight text-right flex items-center justify-end gap-1 pt-0.5">
-                        <span>✨</span>
-                        <span>Al día • Sin repasos hoy</span>
-                      </p>
-                    {/if}
+                  <div class="my-1">
+                    <span class="text-2xl font-extrabold text-white leading-none block">
+                      + Nuevo
+                    </span>
+                    <p class="text-[11px] text-white/60 mt-1 leading-snug">
+                      Elegí tus propias palabras del diccionario
+                    </p>
                   </div>
-                </div>
 
-                <!-- Pie del Mazo: Etiqueta JP | ES y botón circular mate (solo en mazos propios) -->
-                <div class="flex items-center justify-between pt-1">
-                  <span class="text-[10px] font-bold uppercase tracking-wider text-white/55 truncate">
-                    {deck.isCustom ? 'JP | MÍO' : 'JP | ES'}
-                  </span>
-
-                  {#if deck.isCustom}
-                    <button
-                      type="button"
-                      onclick={async (e) => {
-                        e.stopPropagation();
-                        await hapticImpactLight();
-                        if (onOpenAddWords) {
-                          onOpenAddWords(deck);
-                        }
-                      }}
-                      title="Agregar palabras a este mazo"
-                      aria-label="Agregar palabras a este mazo"
-                      class="w-7 h-7 rounded-full bg-white/20 hover:bg-white/35 active-press flex items-center justify-center text-white transition-all shadow-sm shrink-0"
-                    >
+                  <div class="flex items-center justify-between pt-1">
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-white/55">
+                      JP | MÍO
+                    </span>
+                    <div class="w-7 h-7 rounded-full bg-white/15 flex items-center justify-center text-white">
                       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                       </svg>
-                    </button>
-                  {/if}
-                </div>
-              </button>
-            {:else}
-              <!-- Card: Crear un nuevo mazo personalizado -->
-              <button
-                type="button"
-                onclick={handleCreateNew}
-                class="w-full h-[196px] text-left rounded-[26px] p-4 bg-[#171c20] hover:bg-[#1e252a] shadow-lg active-press transition-all flex flex-col justify-between group select-none"
-              >
-                <div class="flex items-start justify-between">
-                  <div>
-                    <h4 class="text-sm font-bold text-white leading-tight">
-                      Crear mazo
-                    </h4>
-                    <span class="block text-[10px] text-white/60 mt-0.5 font-medium">
-                      Personalizado
-                    </span>
+                    </div>
                   </div>
-                </div>
-
-                <div class="my-1">
-                  <span class="text-2xl font-extrabold text-white leading-none block">
-                    + Nuevo
-                  </span>
-                  <p class="text-[11px] text-white/60 mt-1 leading-snug">
-                    Elegí tus propias palabras del diccionario
-                  </p>
-                </div>
-
-                <div class="flex items-center justify-between pt-1">
-                  <span class="text-[10px] font-bold uppercase tracking-wider text-white/55">
-                    JP | MÍO
-                  </span>
-                  <div class="w-7 h-7 rounded-full bg-white/15 flex items-center justify-center text-white">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                    </svg>
-                  </div>
-                </div>
-              </button>
-            {/if}
-          {/each}
-        </div>
-      {/each}
-    </div>
-
-    <!-- Indicador de Páginas con Puntos (Dots de Carrusel) -->
-    {#if deckPages.length > 1}
-      <div class="flex items-center justify-center gap-1.5 pt-1 pb-0.5">
-        {#each deckPages as _, idx}
-          <button
-            type="button"
-            onclick={() => scrollToPage(idx)}
-            aria-label="Ir a página {idx + 1}"
-            class="touch-target h-6 flex items-center justify-center px-1 active-press"
-          >
-            <span
-              class="h-1.5 rounded-full transition-all duration-300 {currentPage === idx
-                ? 'w-6 bg-[#a7f3d0]'
-                : 'w-1.5 bg-white/20 hover:bg-white/40'}"
-            ></span>
-          </button>
+                </button>
+              {/if}
+            {/each}
+          </div>
         {/each}
       </div>
+
+      <!-- Indicador de Páginas con Puntos (Dots de Carrusel) -->
+      {#if deckPages.length > 1}
+        <div class="flex items-center justify-center gap-1.5 pt-1 pb-0.5">
+          {#each deckPages as _, idx}
+            <button
+              type="button"
+              onclick={() => scrollToPage(idx)}
+              aria-label="Ir a página {idx + 1}"
+              class="touch-target h-6 flex items-center justify-center px-1 active-press"
+            >
+              <span
+                class="h-1.5 rounded-full transition-all duration-300 {currentPage === idx
+                  ? 'w-6 bg-[#a7f3d0]'
+                  : 'w-1.5 bg-white/20 hover:bg-white/40'}"
+              ></span>
+            </button>
+          {/each}
+        </div>
+      {/if}
     {/if}
   </section>
 

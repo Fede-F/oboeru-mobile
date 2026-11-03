@@ -71,6 +71,7 @@ export interface DeckSummary {
   createdAt: string;
   isCustom?: boolean;
   filterFn?: (vocab: VocabularyRecord) => boolean;
+  lastStudiedAt?: string | null;
 }
 
 /**

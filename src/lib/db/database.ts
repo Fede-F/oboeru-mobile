@@ -11,6 +11,7 @@ import { INITIAL_VOCABULARY_SEED } from './seedVocabulary';
 import { calculateNextReview } from '../srs/sm2';
 import { convertSearchQueryToKana, stripRubyTags, toRomajiText } from '../utils/japanese';
 import { getDeconjugatedCandidates } from '../utils/conjugator';
+import { getAllDecksLastStudied, getDeckLastStudied, setDeckLastStudied } from '../studyMode';
 
 const DB_NAME = 'oboeru_offline_db';
 const DB_VERSION = 5;
@@ -1177,6 +1178,8 @@ export async function getDecksAndQueue(): Promise<{
     });
   }
 
+  const storedLastStudiedMap = getAllDecksLastStudied();
+
   const buildDeck = (
     id: string,
     title: string,
@@ -1196,6 +1199,28 @@ export async function getDecksAndQueue(): Promise<{
       (c) => c.review.state === 'review' && c.review.interval_days >= 3
     ).length;
 
+    let latestCardStudyTime: string | null = null;
+    for (const c of matching) {
+      if (c.review && c.review.state !== 'new') {
+        const u = c.review.updated_at;
+        if (u && (!latestCardStudyTime || u > latestCardStudyTime)) {
+          latestCardStudyTime = u;
+        }
+      }
+    }
+
+    const storedTime = storedLastStudiedMap[id] || getDeckLastStudied(id);
+    let effectiveLastStudied: string | null = null;
+    if (storedTime && latestCardStudyTime) {
+      effectiveLastStudied = storedTime > latestCardStudyTime ? storedTime : latestCardStudyTime;
+    } else {
+      effectiveLastStudied = storedTime || latestCardStudyTime || null;
+    }
+
+    if (effectiveLastStudied && !storedTime) {
+      setDeckLastStudied(id, effectiveLastStudied);
+    }
+
     return {
       id,
       title,
@@ -1208,7 +1233,8 @@ export async function getDecksAndQueue(): Promise<{
       accentVariant,
       createdAt,
       isCustom,
-      filterFn: predicate
+      filterFn: predicate,
+      lastStudiedAt: effectiveLastStudied
     };
   };
 

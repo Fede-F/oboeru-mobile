@@ -208,8 +208,6 @@
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
   border-radius: 28px;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
 }
 
 .flip-face-front {
@@ -229,10 +227,24 @@
 .flip-card-inner.is-flipped .flip-face-front {
   z-index: 1;
   pointer-events: none;
+  visibility: hidden;
 }
 
 .flip-card-inner.is-flipped .flip-face-back {
   z-index: 2;
   pointer-events: auto;
+  visibility: visible;
+}
+
+.flip-card-inner:not(.is-flipped) .flip-face-front {
+  z-index: 2;
+  pointer-events: auto;
+  visibility: visible;
+}
+
+.flip-card-inner:not(.is-flipped) .flip-face-back {
+  z-index: 1;
+  pointer-events: none;
+  visibility: hidden;
 }
 
