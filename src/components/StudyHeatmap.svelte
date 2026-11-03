@@ -79,7 +79,7 @@
               type="button"
               onclick={() => selectDay(cell)}
               aria-label="{cell.dateKey}: {cell.count} repasos"
-              class="w-full aspect-square rounded-[3px] transition-transform active:scale-125 {getLevelClasses(cell.level, cell.isToday)}"
+              class="w-full aspect-square rounded-[3px] active-press transition-transform {getLevelClasses(cell.level, cell.isToday)}"
             ></button>
           {/each}
         </div>

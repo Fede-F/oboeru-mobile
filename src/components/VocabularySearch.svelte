@@ -148,7 +148,7 @@
         <button
           type="button"
           onclick={() => (rawQuery = '')}
-          class="absolute right-3 top-2.5 px-2.5 py-1 rounded-xl bg-slate-800 text-[11px] text-slate-300 font-semibold"
+          class="absolute right-3 top-2.5 px-2.5 py-1 rounded-xl bg-slate-800 text-[11px] text-slate-300 font-semibold active-press"
         >
           Limpiar
         </button>
@@ -169,14 +169,14 @@
           <button
             type="button"
             onclick={() => applyDirectKanaConversion('hiragana')}
-            class="px-2 py-0.5 rounded-lg bg-black/40 border border-white/10 text-[10px] text-[#a7f3d0] font-semibold"
+            class="px-2 py-0.5 rounded-lg bg-black/40 border border-white/10 text-[10px] text-[#a7f3d0] font-semibold active-press"
           >
             Usar ひらがな
           </button>
           <button
             type="button"
             onclick={() => applyDirectKanaConversion('katakana')}
-            class="px-2 py-0.5 rounded-lg bg-black/40 border border-white/10 text-[10px] text-amber-300 font-semibold"
+            class="px-2 py-0.5 rounded-lg bg-black/40 border border-white/10 text-[10px] text-amber-300 font-semibold active-press"
           >
             Usar カタカナ
           </button>

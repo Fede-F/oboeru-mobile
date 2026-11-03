@@ -492,11 +492,16 @@
                     </div>
 
                     <div class="text-right">
-                      <span class="text-lg font-extrabold text-white leading-none block">
-                        {deck.dueCards}
-                      </span>
-                      <span class="text-[10px] text-white/60 font-medium block mt-0.5">
-                        Para hoy
+                      <div class="flex items-center justify-end gap-1">
+                        {#if deck.dueCards === 0 && deck.totalCards > 0}
+                          <span class="text-xs text-emerald-400 font-bold">✓</span>
+                        {/if}
+                        <span class="text-lg font-extrabold {deck.dueCards === 0 && deck.totalCards > 0 ? 'text-emerald-300' : 'text-white'} leading-none block">
+                          {deck.dueCards}
+                        </span>
+                      </div>
+                      <span class="text-[10px] {deck.dueCards === 0 && deck.totalCards > 0 ? 'text-emerald-300/90 font-bold' : 'text-white/60 font-medium'} block mt-0.5">
+                        {deck.dueCards === 0 && deck.totalCards > 0 ? 'Al día' : 'Para hoy'}
                       </span>
                     </div>
                   </div>
@@ -513,6 +518,13 @@
                       <span>Progreso</span>
                       <span>{getDeckProgressPercent(deck)}%</span>
                     </div>
+
+                    {#if deck.dueCards === 0 && deck.totalCards > 0}
+                      <p class="text-[9.5px] text-emerald-300/90 font-bold tracking-tight text-right flex items-center justify-end gap-1 pt-0.5">
+                        <span>✨</span>
+                        <span>Al día • Sin repasos hoy</span>
+                      </p>
+                    {/if}
                   </div>
                 </div>
 
@@ -595,7 +607,7 @@
             type="button"
             onclick={() => scrollToPage(idx)}
             aria-label="Ir a página {idx + 1}"
-            class="touch-target h-6 flex items-center justify-center px-1"
+            class="touch-target h-6 flex items-center justify-center px-1 active-press"
           >
             <span
               class="h-1.5 rounded-full transition-all duration-300 {currentPage === idx

@@ -236,7 +236,7 @@
         <button
           type="button"
           onclick={() => (searchQuery = '')}
-          class="absolute right-3 top-2.5 px-2.5 py-1 rounded-xl bg-slate-800 text-[11px] text-slate-300 font-semibold"
+          class="absolute right-3 top-2.5 px-2.5 py-1 rounded-xl bg-slate-800 text-[11px] text-slate-300 font-semibold active-press"
         >
           Limpiar
         </button>
@@ -328,7 +328,7 @@
                 speakJapanese(stripRubyTags(item.kanji || item.reading));
               }}
               aria-label="Escuchar pronunciación"
-              class="touch-target w-10 h-10 rounded-xl bg-[#171717] border border-white/10 text-[#a7f3d0] flex items-center justify-center"
+              class="touch-target w-10 h-10 rounded-xl bg-[#171717] border border-white/10 text-[#a7f3d0] flex items-center justify-center active-press"
             >
               🔊
             </button>

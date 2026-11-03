@@ -1192,7 +1192,7 @@ export async function getDecksAndQueue(): Promise<{
       subtitle,
       badge,
       totalCards: matching.length,
-      dueCards: dueCards || matching.length,
+      dueCards,
       newCards,
       masteredCards,
       accentVariant,

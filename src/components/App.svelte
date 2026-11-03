@@ -207,6 +207,11 @@
     selectedDeckTitle = deck.title;
     currentStudyDeckId = deck.id;
     const matching = deck.filterFn ? allCards.filter(deck.filterFn) : allCards;
+    const nowMs = Date.now();
+    const dueOnly = matching.filter(
+      (c) => new Date(c.review.next_review_date).getTime() <= nowMs
+    );
+    const pool = dueOnly.length > 0 ? dueOnly : matching;
     const mode = getDeckStudyMode(deck.id);
     currentStudyMode = mode;
 
@@ -214,7 +219,7 @@
       // Reanudar respetando el orden aleatorio y modo guardados
       const cardMap = new Map(matching.map((c) => [c.id, c]));
       const ordered = activeSession.cardIds.map((id) => cardMap.get(id)).filter(Boolean) as StudyCardItem[];
-      activeStudyCards = ordered.length > 0 ? ordered : matching;
+      activeStudyCards = ordered.length > 0 ? ordered : pool;
       initialStudyIndex = activeSession.currentIndex;
       initialCompletedCount = activeSession.sessionCompletedCount;
       if (activeSession.studyMode) {
@@ -222,7 +227,7 @@
       }
     } else {
       // Iniciar sesión nueva barajando aleatoriamente (Shuffle)
-      const shuffled = shuffleCards(matching);
+      const shuffled = shuffleCards(pool);
       activeStudyCards = shuffled;
       initialStudyIndex = 0;
       initialCompletedCount = 0;
@@ -687,7 +692,7 @@
         <button
           type="button"
           onclick={() => switchTab('dashboard')}
-          class="touch-target flex flex-col items-center justify-center gap-1 transition-colors {currentTab === 'dashboard' || currentTab === 'create-deck' || currentTab === 'edit-deck' || currentTab === 'add-words' || currentTab === 'study'
+          class="touch-target active-press flex flex-col items-center justify-center gap-1 transition-colors {currentTab === 'dashboard' || currentTab === 'create-deck' || currentTab === 'edit-deck' || currentTab === 'add-words' || currentTab === 'study'
             ? 'text-[#a7f3d0]'
             : 'text-slate-400 hover:text-slate-200'}"
         >
@@ -700,7 +705,7 @@
         <button
           type="button"
           onclick={() => switchTab('search')}
-          class="touch-target flex flex-col items-center justify-center gap-1 transition-colors {currentTab === 'search'
+          class="touch-target active-press flex flex-col items-center justify-center gap-1 transition-colors {currentTab === 'search'
             ? 'text-[#a7f3d0]'
             : 'text-slate-400 hover:text-slate-200'}"
         >
@@ -713,7 +718,7 @@
         <button
           type="button"
           onclick={() => switchTab('sync')}
-          class="touch-target flex flex-col items-center justify-center gap-1 transition-colors relative {currentTab === 'sync'
+          class="touch-target active-press flex flex-col items-center justify-center gap-1 transition-colors relative {currentTab === 'sync'
             ? 'text-[#a7f3d0]'
             : 'text-slate-400 hover:text-slate-200'}"
         >

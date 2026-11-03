@@ -225,7 +225,7 @@
               showPassword = !showPassword;
             }}
             aria-label={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
-            class="touch-target absolute right-1.5 top-0 h-12 px-3 text-[11px] font-semibold text-slate-400 hover:text-[#a7f3d0]"
+            class="touch-target absolute right-1.5 top-0 h-12 px-3 text-[11px] font-semibold text-slate-400 hover:text-[#a7f3d0] active-press"
           >
             {showPassword ? 'Ocultar' : 'Ver'}
           </button>
