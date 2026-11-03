@@ -1191,10 +1191,11 @@ export async function getDecksAndQueue(): Promise<{
     isCustom: boolean = false
   ): DeckSummary => {
     const matching = activeCards.filter(predicate);
-    const dueCards = matching.filter(
-      (c) => new Date(c.review.next_review_date).getTime() <= endOfTodayMs
+    const dueReviews = matching.filter(
+      (c) => c.review.state !== 'new' && new Date(c.review.next_review_date).getTime() <= endOfTodayMs
     ).length;
     const newCards = matching.filter((c) => c.review.state === 'new').length;
+    const dueCards = dueReviews + newCards;
     const masteredCards = matching.filter(
       (c) => c.review.state === 'review' && c.review.interval_days >= 3
     ).length;
@@ -1228,6 +1229,7 @@ export async function getDecksAndQueue(): Promise<{
       badge,
       totalCards: matching.length,
       dueCards,
+      dueReviews,
       newCards,
       masteredCards,
       accentVariant,

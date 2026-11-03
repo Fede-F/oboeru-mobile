@@ -65,6 +65,7 @@ export interface DeckSummary {
   badge: string;
   totalCards: number;
   dueCards: number;
+  dueReviews: number;
   newCards: number;
   masteredCards: number;
   accentVariant: 'mint' | 'olive' | 'slate' | 'emerald';

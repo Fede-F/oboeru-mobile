@@ -570,17 +570,38 @@
                       </div>
 
                       <div class="text-right">
-                        <div class="flex items-center justify-end gap-1">
-                          {#if deck.dueCards === 0 && deck.totalCards > 0}
-                            <span class="text-xs text-emerald-400 font-bold">✓</span>
-                          {/if}
-                          <span class="text-lg font-extrabold {deck.dueCards === 0 && deck.totalCards > 0 ? 'text-emerald-300' : 'text-white'} leading-none block">
-                            {deck.dueCards}
+                        {#if (deck.dueReviews || 0) > 0}
+                          <div class="flex items-center justify-end gap-1">
+                            <span class="text-lg font-extrabold text-white leading-none block">
+                              {deck.dueReviews}
+                            </span>
+                          </div>
+                          <span class="text-[10px] text-amber-300/90 font-bold block mt-0.5">
+                            {deck.dueReviews === 1 ? 'Repaso hoy' : 'Repasos hoy'}
                           </span>
-                        </div>
-                        <span class="text-[10px] {deck.dueCards === 0 && deck.totalCards > 0 ? 'text-emerald-300/90 font-bold' : 'text-white/60 font-medium'} block mt-0.5">
-                          {deck.dueCards === 0 && deck.totalCards > 0 ? 'Al día' : 'Para hoy'}
-                        </span>
+                        {:else if (deck.newCards || 0) > 0}
+                          <div class="flex items-center justify-end gap-1">
+                            <span class="text-lg font-extrabold text-sky-300 leading-none block">
+                              {deck.newCards}
+                            </span>
+                          </div>
+                          <span class="text-[10px] text-sky-300/90 font-bold block mt-0.5">
+                            {deck.newCards === 1 ? 'Nueva' : 'Nuevas'}
+                          </span>
+                        {:else if deck.totalCards > 0}
+                          <div class="flex items-center justify-end gap-1">
+                            <span class="text-xs text-emerald-400 font-bold">✓</span>
+                            <span class="text-lg font-extrabold text-emerald-300 leading-none block">
+                              0
+                            </span>
+                          </div>
+                          <span class="text-[10px] text-emerald-300/90 font-bold block mt-0.5">
+                            Al día
+                          </span>
+                        {:else}
+                          <span class="text-lg font-extrabold text-white/50 leading-none block">0</span>
+                          <span class="text-[10px] text-white/50 font-medium block mt-0.5">Vacío</span>
+                        {/if}
                       </div>
                     </div>
 
@@ -597,8 +618,18 @@
                         <span>{getDeckProgressPercent(deck)}%</span>
                       </div>
 
-                      {#if deck.dueCards === 0 && deck.totalCards > 0}
-                        <p class="text-[9.5px] text-emerald-300/90 font-bold tracking-tight text-right flex items-center justify-end gap-1 pt-0.5">
+                      {#if (deck.dueReviews || 0) > 0}
+                        <p class="text-[9.5px] text-amber-300/90 font-bold tracking-tight text-right flex items-center justify-end gap-1 pt-0.5 truncate">
+                          <span>⏳</span>
+                          <span>{deck.dueReviews} {deck.dueReviews === 1 ? 'repaso' : 'repasos'}{#if (deck.newCards || 0) > 0} • {deck.newCards} {deck.newCards === 1 ? 'nueva' : 'nuevas'}{/if}</span>
+                        </p>
+                      {:else if (deck.newCards || 0) > 0}
+                        <p class="text-[9.5px] text-sky-300/90 font-bold tracking-tight text-right flex items-center justify-end gap-1 pt-0.5 truncate">
+                          <span>🌱</span>
+                          <span>{deck.newCards} {deck.newCards === 1 ? 'nueva por aprender' : 'nuevas por aprender'}</span>
+                        </p>
+                      {:else if deck.totalCards > 0}
+                        <p class="text-[9.5px] text-emerald-300/90 font-bold tracking-tight text-right flex items-center justify-end gap-1 pt-0.5 truncate">
                           <span>✨</span>
                           <span>Al día • Sin repasos hoy</span>
                         </p>
@@ -727,9 +758,19 @@
             <h3 id="menu-deck-title" class="text-base font-extrabold text-white truncate mt-0.5">
               {targetDeck.title}
             </h3>
-            <span class="text-xs text-white/60">
-              {targetDeck.totalCards} palabras • {targetDeck.dueCards} para hoy
-            </span>
+            <div class="flex items-center gap-1.5 text-xs text-white/60 flex-wrap mt-0.5">
+              <span>{targetDeck.totalCards} palabras</span>
+              <span>•</span>
+              {#if (targetDeck.dueReviews || 0) > 0}
+                <span class="text-amber-300 font-semibold">{targetDeck.dueReviews} {targetDeck.dueReviews === 1 ? 'repaso' : 'repasos'}</span>
+              {:else}
+                <span class="text-emerald-300 font-semibold">Repasos al día</span>
+              {/if}
+              {#if (targetDeck.newCards || 0) > 0}
+                <span>•</span>
+                <span class="text-sky-300 font-semibold">{targetDeck.newCards} {targetDeck.newCards === 1 ? 'nueva' : 'nuevas'}</span>
+              {/if}
+            </div>
           </div>
 
           <button

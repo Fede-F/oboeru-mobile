@@ -252,10 +252,17 @@
       59,
       999
     ).getTime();
-    const dueOnly = matching.filter(
-      (c) => new Date(c.review.next_review_date).getTime() <= endOfTodayMs
+    const dueReviews = matching.filter(
+      (c) => c.review.state !== 'new' && new Date(c.review.next_review_date).getTime() <= endOfTodayMs
     );
-    const pool = dueOnly.length > 0 ? dueOnly : matching;
+    const newItems = matching.filter((c) => c.review.state === 'new');
+    let pool: StudyCardItem[];
+    if (dueReviews.length > 0 || newItems.length > 0) {
+      // Priorizar los repasos vencidos primero (barajados), seguidos de las tarjetas nuevas (barajadas)
+      pool = [...shuffleCards(dueReviews), ...shuffleCards(newItems)];
+    } else {
+      pool = shuffleCards(matching);
+    }
     const mode = getDeckStudyMode(deck.id);
     currentStudyMode = mode;
 
@@ -270,20 +277,19 @@
         currentStudyMode = activeSession.studyMode;
       }
     } else {
-      // Iniciar sesión nueva barajando aleatoriamente (Shuffle)
-      const shuffled = shuffleCards(pool);
-      activeStudyCards = shuffled;
+      // Iniciar sesión nueva respetando prioridad (repasos antes que nuevas)
+      activeStudyCards = pool;
       initialStudyIndex = 0;
       initialCompletedCount = 0;
 
-      if (shuffled.length > 0) {
+      if (pool.length > 0) {
         const fresh: ActiveStudySession = {
           deckId: deck.id,
           deckTitle: deck.title,
           currentIndex: 0,
           sessionCompletedCount: 0,
-          totalCards: shuffled.length,
-          cardIds: shuffled.map((c) => c.id),
+          totalCards: pool.length,
+          cardIds: pool.map((c) => c.id),
           studyMode: mode,
           savedAt: new Date().toISOString()
         };
