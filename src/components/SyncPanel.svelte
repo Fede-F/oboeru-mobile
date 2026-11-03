@@ -6,7 +6,8 @@
     type SyncStatusState
   } from '../lib/sync/SyncManager';
   import {
-    checkForOtaUpdates,
+    checkAvailableUpdate,
+    downloadAndApplyUpdate,
     getCurrentAppVersion,
     reloadApp,
     subscribeOtaState
@@ -14,7 +15,8 @@
   import {
     hapticImpactMedium,
     hapticSelection,
-    hapticSuccess
+    hapticSuccess,
+    hapticWarning
   } from '../lib/haptics.js';
   import VersionBadge from './VersionBadge.svelte';
 
@@ -26,6 +28,7 @@
 
   let currentVersion = $state('1.0.0');
   let isCheckingOta = $state(false);
+  let isDownloadingOta = $state(false);
 
   let otaState = $state({
     status: 'idle',
@@ -88,7 +91,7 @@
     await hapticImpactMedium();
     isCheckingOta = true;
     try {
-      const res = await checkForOtaUpdates({ autoReload: false });
+      const res = await checkAvailableUpdate();
       if (res.updateAvailable) {
         await hapticSuccess();
       } else if (otaState.status === 'up-to-date') {
@@ -96,6 +99,19 @@
       }
     } finally {
       isCheckingOta = false;
+    }
+  }
+
+  async function handleDownloadUpdate() {
+    await hapticImpactMedium();
+    isDownloadingOta = true;
+    try {
+      await downloadAndApplyUpdate(null, { autoReload: true });
+      await hapticSuccess();
+    } catch (e) {
+      await hapticWarning();
+    } finally {
+      isDownloadingOta = false;
     }
   }
 
@@ -283,13 +299,15 @@
             ? 'Al día'
             : otaState.status === 'checking'
               ? 'Buscando...'
-              : otaState.status === 'downloading'
-                ? 'Descargando actualización...'
-                : otaState.status === 'ready'
-                  ? 'Lista para aplicar'
-                  : otaState.status === 'error'
-                    ? 'Error al comprobar/descargar'
-                    : 'Al día'}
+              : otaState.status === 'available'
+                ? 'Actualización disponible'
+                : otaState.status === 'downloading'
+                  ? 'Descargando actualización...'
+                  : otaState.status === 'ready'
+                    ? 'Lista para aplicar'
+                    : otaState.status === 'error'
+                      ? 'Error al comprobar/descargar'
+                      : 'Al día'}
         </span>
       </div>
       {#if otaState.availableVersion && otaState.availableVersion !== currentVersion}
@@ -314,15 +332,28 @@
         >
           <span>🚀 Reiniciar y aplicar v{otaState.availableVersion || 'nueva'}</span>
         </button>
+      {:else if otaState.status === 'available'}
+        <button
+          type="button"
+          onclick={handleDownloadUpdate}
+          disabled={isDownloadingOta}
+          class="w-full touch-target rounded-full bg-[#a7f3d0] hover:bg-emerald-200 text-slate-950 font-extrabold text-xs active-press shadow-lg flex items-center justify-center gap-2 py-3"
+        >
+          {#if isDownloadingOta}
+            <span>Descargando v{otaState.availableVersion}...</span>
+          {:else}
+            <span>⬇️ Descargar y aplicar v{otaState.availableVersion}</span>
+          {/if}
+        </button>
       {/if}
 
       <button
         type="button"
         onclick={handleManualOtaCheck}
-        disabled={isCheckingOta}
+        disabled={isCheckingOta || isDownloadingOta}
         class="w-full touch-target rounded-full bg-[#171717] border border-[#a7f3d0]/30 text-[#a7f3d0] font-bold text-xs active-press flex items-center justify-center gap-2"
       >
-        {isCheckingOta ? 'Descargando mejora...' : 'Buscar actualizaciones'}
+        {isCheckingOta ? 'Buscando actualizaciones...' : 'Buscar actualizaciones'}
       </button>
     </div>
   </section>

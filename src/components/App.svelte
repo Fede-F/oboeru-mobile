@@ -2,11 +2,18 @@
   import { onMount } from 'svelte';
   import {
     notifyAppReady,
-    checkForOtaUpdates,
+    checkAvailableUpdate,
+    downloadAndApplyUpdate,
     subscribeOtaState,
     reloadApp
   } from '../lib/otaUpdater.js';
-  import { hapticImpactMedium, hapticSelection, hapticSuccess, hapticWarning } from '../lib/haptics.js';
+  import {
+    hapticImpactLight,
+    hapticImpactMedium,
+    hapticSelection,
+    hapticSuccess,
+    hapticWarning
+  } from '../lib/haptics.js';
   import AuthScreen from './AuthScreen.svelte';
   import DeckList from './DeckList.svelte';
   import CreateDeckScreen from './CreateDeckScreen.svelte';
@@ -87,10 +94,22 @@
     status: 'idle',
     currentVersion: null,
     availableVersion: null,
+    availableUpdateData: null,
     downloadProgress: 0,
     error: null,
     updateReadyToApply: false
   });
+
+  let showUpdateModal = $state(false);
+  let pendingUpdate = $state<{
+    version: string;
+    currentVersion: string;
+    bundleUrl: string;
+    checksum?: string;
+  } | null>(null);
+  let updateNetworkType = $state<'wifi' | 'metered' | 'offline'>('wifi');
+  let isDownloadingUpdate = $state(false);
+  let updateDownloadError = $state<string | null>(null);
 
   async function refreshLocalData() {
     const userId = syncManager.getUserId();
@@ -133,7 +152,22 @@
       const hasSavedSession = await syncManager.ensureSessionHydrated();
       isCheckingSession = false;
 
-      checkForOtaUpdates({ autoReload: false });
+      // Comprobar si hay una actualización disponible (sin descargarla automáticamente)
+      try {
+        const otaRes = await checkAvailableUpdate();
+        if (otaRes.updateAvailable && otaRes.version) {
+          pendingUpdate = {
+            version: otaRes.version,
+            currentVersion: otaRes.currentVersion || (otaState.currentVersion ?? '1.0.0'),
+            bundleUrl: otaRes.bundleUrl!,
+            checksum: otaRes.checksum
+          };
+          updateNetworkType = syncManager.detectNetworkType();
+          showUpdateModal = true;
+        }
+      } catch (e) {
+        console.warn('[OTA] Error al comprobar actualización inicial:', e);
+      }
 
       if (hasSavedSession) {
         await refreshLocalData();
@@ -389,6 +423,41 @@
     await hapticSuccess();
     await reloadApp();
   }
+
+  async function handleDismissUpdateModal() {
+    await hapticImpactLight();
+    showUpdateModal = false;
+  }
+
+  function openUpdateModalFromBanner() {
+    updateNetworkType = syncManager.detectNetworkType();
+    if (otaState.availableUpdateData) {
+      pendingUpdate = otaState.availableUpdateData;
+    } else if (otaState.availableVersion) {
+      pendingUpdate = {
+        version: otaState.availableVersion,
+        currentVersion: otaState.currentVersion ?? '1.0.0',
+        bundleUrl: ''
+      };
+    }
+    showUpdateModal = true;
+  }
+
+  async function handleConfirmDownloadUpdate() {
+    if (!pendingUpdate) return;
+    await hapticImpactMedium();
+    isDownloadingUpdate = true;
+    updateDownloadError = null;
+
+    try {
+      await downloadAndApplyUpdate(pendingUpdate, { autoReload: true });
+      await hapticSuccess();
+    } catch (e) {
+      isDownloadingUpdate = false;
+      updateDownloadError = e instanceof Error ? e.message : String(e);
+      await hapticWarning();
+    }
+  }
 </script>
 
 {#if isCheckingSession}
@@ -481,9 +550,9 @@
       </div>
     </header>
 
-    <!-- Banner de Actualización OTA Lista -->
+    <!-- Banner de Actualización OTA Lista o Disponible -->
     {#if otaState.updateReadyToApply}
-      <div class="mx-4 mt-3 p-3.5 rounded-2xl bg-[#182420] border border-[#a7f3d0]/40 shadow-xl flex items-center justify-between gap-3">
+      <div class="mx-4 mt-3 p-3.5 rounded-2xl bg-[#182420] border border-[#a7f3d0]/40 shadow-xl flex items-center justify-between gap-3 animate-fade-in">
         <div>
           <p class="text-xs font-bold text-white">Actualización v{otaState.availableVersion} lista</p>
           <p class="text-[11px] text-[#a7f3d0]/85">Reiniciá para aplicar las últimas mejoras.</p>
@@ -494,6 +563,20 @@
           class="touch-target px-3.5 py-1.5 rounded-xl bg-[#a7f3d0] text-slate-950 font-bold text-xs active-press"
         >
           Reiniciar
+        </button>
+      </div>
+    {:else if otaState.status === 'available' && !showUpdateModal}
+      <div class="mx-4 mt-3 p-3.5 rounded-2xl bg-[#1a2620] border border-[#a7f3d0]/30 shadow-xl flex items-center justify-between gap-3 animate-fade-in">
+        <div class="min-w-0">
+          <p class="text-xs font-bold text-white truncate">Actualización v{otaState.availableVersion} disponible</p>
+          <p class="text-[11px] text-[#a7f3d0]/80">Podés actualizar cuando gustes.</p>
+        </div>
+        <button
+          type="button"
+          onclick={openUpdateModalFromBanner}
+          class="touch-target px-3.5 py-1.5 rounded-xl bg-[#a7f3d0] text-slate-950 font-bold text-xs active-press shrink-0"
+        >
+          Actualizar
         </button>
       </div>
     {/if}
@@ -744,5 +827,101 @@
         </button>
       </div>
     </nav>
+  </div>
+{/if}
+
+<!-- Modal de Actualización Disponible (aparece en cualquier vista si hay update y el usuario no lo descartó) -->
+{#if showUpdateModal && pendingUpdate}
+  <div class="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-5 animate-fade-in">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="update-modal-title"
+      class="bg-[#121820] max-w-sm w-full p-6 rounded-3xl border border-[#a7f3d0]/35 shadow-2xl space-y-4"
+    >
+      <!-- Encabezado con Icono -->
+      <div class="flex items-center gap-3">
+        <div class="w-12 h-12 rounded-2xl bg-[#3e534a]/30 border border-[#a7f3d0]/40 flex items-center justify-center text-[#a7f3d0] shadow-md shrink-0">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+          </svg>
+        </div>
+        <div class="min-w-0">
+          <h3 id="update-modal-title" class="text-base font-bold text-white leading-tight">
+            Nueva actualización
+          </h3>
+          <div class="flex items-center gap-1.5 mt-1">
+            <span class="text-xs text-slate-400 font-mono">v{pendingUpdate.currentVersion}</span>
+            <span class="text-[#a7f3d0] text-xs">→</span>
+            <span class="text-xs font-bold text-[#a7f3d0] font-mono">v{pendingUpdate.version}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Indicador de Red (Wi-Fi vs Datos Móviles) -->
+      {#if updateNetworkType === 'metered'}
+        <div class="flex items-center gap-2 p-2.5 rounded-2xl bg-amber-500/10 border border-amber-400/25 text-amber-300 text-xs">
+          <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 011.06 0z" />
+          </svg>
+          <span>Conexión por <strong>datos móviles</strong> (paquete liviano de ~100 KB)</span>
+        </div>
+      {:else if updateNetworkType === 'wifi'}
+        <div class="flex items-center gap-2 p-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-400/25 text-emerald-300 text-xs">
+          <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 011.06 0z" />
+          </svg>
+          <span>Conectado a <strong>Wi-Fi</strong> (Recomendado)</span>
+        </div>
+      {/if}
+
+      <!-- Mensaje descriptivo -->
+      <p class="text-xs text-slate-300 leading-relaxed">
+        Hay una nueva versión de Oboeru lista con mejoras de rendimiento y correcciones. La descarga es instantánea y la aplicación se reiniciará para aplicar los cambios.
+      </p>
+
+      <!-- Estado de Descarga en Curso -->
+      {#if isDownloadingUpdate}
+        <div class="p-3.5 rounded-2xl bg-black/40 border border-[#a7f3d0]/20 space-y-2 text-center animate-pulse">
+          <div class="flex items-center justify-center gap-2 text-[#a7f3d0] font-bold text-xs">
+            <svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+            </svg>
+            <span>Descargando e instalando v{pendingUpdate.version}...</span>
+          </div>
+          <p class="text-[11px] text-slate-400">
+            Por favor espera unos segundos mientras se actualiza.
+          </p>
+        </div>
+      {/if}
+
+      <!-- Mensaje de Error si ocurre -->
+      {#if updateDownloadError}
+        <div class="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs space-y-1">
+          <p class="font-bold">No se pudo completar la actualización</p>
+          <p class="text-[11px] text-rose-300/80 leading-tight">{updateDownloadError}</p>
+        </div>
+      {/if}
+
+      <!-- Botones de Acción -->
+      {#if !isDownloadingUpdate}
+        <div class="flex gap-2.5 pt-2">
+          <button
+            type="button"
+            onclick={handleDismissUpdateModal}
+            class="flex-1 touch-target rounded-full bg-[#171717] border border-white/10 text-slate-300 font-semibold text-xs active-press"
+          >
+            Más tarde
+          </button>
+          <button
+            type="button"
+            onclick={handleConfirmDownloadUpdate}
+            class="flex-1 touch-target rounded-full bg-[#a7f3d0] text-slate-950 font-extrabold text-xs active-press flex items-center justify-center gap-1.5 shadow-lg shadow-[#a7f3d0]/15"
+          >
+            <span>Actualizar ahora</span>
+          </button>
+        </div>
+      {/if}
+    </div>
   </div>
 {/if}

@@ -209,13 +209,30 @@
   backface-visibility: hidden;
   border-radius: 28px;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .flip-face-front {
   transform: rotateY(0deg) translateZ(1px);
+  z-index: 2;
+  pointer-events: auto;
 }
 
 .flip-face-back {
   transform: rotateY(180deg) translateZ(1px);
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* Cuando la tarjeta está girada (reverso visible), desactivamos eventos en el frente
+   y activamos eventos en el dorso para que botones y enlaces respondan al tacto */
+.flip-card-inner.is-flipped .flip-face-front {
+  z-index: 1;
+  pointer-events: none;
+}
+
+.flip-card-inner.is-flipped .flip-face-back {
+  z-index: 2;
+  pointer-events: auto;
 }
 

@@ -30,6 +30,7 @@ let currentState = {
   status: 'idle',
   currentVersion: initialBuildVersion,
   availableVersion: null,
+  availableUpdateData: null,
   downloadProgress: 0,
   error: null,
   updateReadyToApply: false
@@ -237,18 +238,24 @@ async function resolveChecksum(bundleUrl, latestVersion, providedChecksum) {
 }
 
 /**
- * Check for updates against the Cloudflare Worker endpoint (GET /:repo/version)
+ * Only checks for available updates against the Cloudflare Worker endpoint (GET /:repo/version)
+ * without initiating the download automatically.
  */
-export async function checkForOtaUpdates(config = {}) {
+export async function checkAvailableUpdate(config = {}) {
   const appName = config.appName || DEFAULT_APP_NAME;
   const workerBaseUrl = (config.workerBaseUrl || DEFAULT_WORKER_URL).replace(/\/$/, '');
-  const autoReload = config.autoReload ?? false;
   const timeoutMs = config.timeoutMs ?? 15000;
 
   if (!Capacitor.isNativePlatform()) {
     const currentVersion = await getCurrentAppVersion();
-    updateState({ status: 'up-to-date', currentVersion, availableVersion: null, error: null });
-    return { updateAvailable: false };
+    updateState({
+      status: 'up-to-date',
+      currentVersion,
+      availableVersion: null,
+      availableUpdateData: null,
+      error: null
+    });
+    return { updateAvailable: false, version: currentVersion, currentVersion };
   }
 
   try {
@@ -283,11 +290,77 @@ export async function checkForOtaUpdates(config = {}) {
         status: 'up-to-date',
         currentVersion: currentClean,
         availableVersion: null,
+        availableUpdateData: null,
         error: null
       });
-      return { updateAvailable: false, version: currentClean };
+      return { updateAvailable: false, version: currentClean, currentVersion: currentClean };
     }
 
+    const updateData = {
+      version: latestVersion,
+      currentVersion: currentClean,
+      bundleUrl,
+      checksum: data.checksum
+    };
+
+    updateState({
+      status: 'available',
+      availableVersion: latestVersion,
+      availableUpdateData: updateData,
+      downloadProgress: 0,
+      error: null,
+      updateReadyToApply: false
+    });
+
+    return {
+      updateAvailable: true,
+      currentVersion: currentClean,
+      version: latestVersion,
+      bundleUrl,
+      checksum: data.checksum
+    };
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error('[OTA] ❌ Check update failed:', errorMsg);
+    updateState({
+      status: 'error',
+      error: errorMsg,
+      updateReadyToApply: false
+    });
+    return { updateAvailable: false, error: errorMsg };
+  }
+}
+
+/**
+ * Downloads and stages the bundle for an available update.
+ * If autoReload is true, immediately restarts the app so the new bundle takes effect.
+ */
+export async function downloadAndApplyUpdate(updateInfo = null, { autoReload = true } = {}) {
+  const target = updateInfo || currentState.availableUpdateData;
+  const latestVersion = target?.version || currentState.availableVersion;
+  const bundleUrl = target?.bundleUrl;
+  const rawChecksum = target?.checksum;
+
+  if (!latestVersion || !bundleUrl) {
+    throw new Error('No se encontró información del paquete de actualización para descargar.');
+  }
+
+  if (!Capacitor.isNativePlatform()) {
+    console.log('[OTA] Simulating download & apply on web...');
+    updateState({
+      status: 'ready',
+      availableVersion: latestVersion,
+      updateReadyToApply: true,
+      downloadProgress: 100,
+      error: null
+    });
+    if (autoReload) {
+      await reloadApp();
+    }
+    return { id: latestVersion };
+  }
+
+  try {
     updateState({
       status: 'downloading',
       availableVersion: latestVersion,
@@ -295,7 +368,7 @@ export async function checkForOtaUpdates(config = {}) {
       error: null
     });
 
-    const checksum = await resolveChecksum(bundleUrl, latestVersion, data.checksum);
+    const checksum = await resolveChecksum(bundleUrl, latestVersion, rawChecksum);
     if (!checksum) {
       throw new Error('No se pudo verificar el checksum SHA-256 del paquete OTA.');
     }
@@ -306,12 +379,12 @@ export async function checkForOtaUpdates(config = {}) {
       checksum
     };
 
-    console.log(`[OTA] 📥 Starting download of v${latestVersion} with checksum:`, checksum);
+    console.log(`[OTA] 📥 Iniciando descarga de v${latestVersion} (checksum: ${checksum})...`);
     const bundle = await CapacitorUpdater.download(downloadOpts);
-    console.log(`[OTA] ✅ Download complete. Staging bundle id:`, bundle?.id);
+    console.log(`[OTA] ✅ Descarga completa. Bundle ID:`, bundle?.id);
 
-    // Stage bundle to activate on next launch or backgrounding without crashing active UI
-    await CapacitorUpdater.next({ id: bundle.id || latestVersion });
+    // Configurar bundle para activarse de inmediato o en próximo reinicio
+    await CapacitorUpdater.next({ id: bundle?.id || latestVersion });
 
     updateState({
       status: 'ready',
@@ -325,20 +398,43 @@ export async function checkForOtaUpdates(config = {}) {
       await reloadApp();
     }
 
-    return {
-      updateAvailable: true,
-      version: latestVersion,
-      bundleUrl
-    };
+    return bundle;
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error('[OTA] ❌ Check/Download failed:', errorMsg);
+    console.error('[OTA] ❌ Falló la descarga/aplicación de la actualización:', errorMsg);
     updateState({
       status: 'error',
       error: errorMsg,
       updateReadyToApply: false
     });
-    return { updateAvailable: false };
+    throw error;
+  }
+}
+
+/**
+ * Check for updates against the Cloudflare Worker endpoint (GET /:repo/version).
+ * By default downloads immediately unless `downloadImmediately: false` is provided.
+ */
+export async function checkForOtaUpdates(config = {}) {
+  const downloadImmediately = config.downloadImmediately ?? true;
+  const checkRes = await checkAvailableUpdate(config);
+
+  if (!checkRes.updateAvailable || !downloadImmediately) {
+    return checkRes;
+  }
+
+  try {
+    const bundle = await downloadAndApplyUpdate(checkRes, {
+      autoReload: config.autoReload ?? false
+    });
+    return {
+      updateAvailable: true,
+      version: checkRes.version,
+      bundleUrl: checkRes.bundleUrl,
+      bundle
+    };
+  } catch (error) {
+    return { updateAvailable: false, error: String(error) };
   }
 }
 

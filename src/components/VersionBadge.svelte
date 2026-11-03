@@ -4,13 +4,15 @@
     appVersion,
     getAppVersionInfo,
     subscribeOtaState,
-    checkForOtaUpdates,
+    checkAvailableUpdate,
+    downloadAndApplyUpdate,
     reloadApp
   } from '../lib/otaUpdater.js';
   import {
     hapticImpactLight,
     hapticImpactMedium,
-    hapticSuccess
+    hapticSuccess,
+    hapticWarning
   } from '../lib/haptics.js';
 
   /**
@@ -38,6 +40,7 @@
 
   let showDetailsModal = $state(false);
   let isChecking = $state(false);
+  let isDownloading = $state(false);
 
   onMount(async () => {
     versionInfo = await getAppVersionInfo();
@@ -61,12 +64,27 @@
     await hapticImpactMedium();
     isChecking = true;
     try {
-      await checkForOtaUpdates();
-      if (otaState.status === 'up-to-date') {
+      const res = await checkAvailableUpdate();
+      if (res.updateAvailable) {
+        await hapticSuccess();
+      } else if (otaState.status === 'up-to-date') {
         await hapticSuccess();
       }
     } finally {
       isChecking = false;
+    }
+  }
+
+  async function handleDownloadAndApply() {
+    await hapticImpactMedium();
+    isDownloading = true;
+    try {
+      await downloadAndApplyUpdate(null, { autoReload: true });
+      await hapticSuccess();
+    } catch (e) {
+      await hapticWarning();
+    } finally {
+      isDownloading = false;
     }
   }
 
@@ -199,6 +217,18 @@
           class="w-full touch-target rounded-xl bg-emerald-500 text-slate-950 font-bold text-xs active-press shadow-lg shadow-emerald-500/20"
         >
           Reiniciar para Aplicar v{otaState.availableVersion}
+        </button>
+      {:else if otaState.status === 'available'}
+        <button
+          onclick={handleDownloadAndApply}
+          disabled={isDownloading}
+          class="w-full touch-target rounded-xl bg-emerald-500 text-slate-950 font-bold text-xs active-press shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+        >
+          {#if isDownloading}
+            <span>Descargando v{otaState.availableVersion}...</span>
+          {:else}
+            <span>⬇️ Descargar y Aplicar v{otaState.availableVersion}</span>
+          {/if}
         </button>
       {:else}
         <button

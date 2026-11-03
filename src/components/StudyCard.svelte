@@ -135,7 +135,7 @@
     showFurigana = !showFurigana;
   }
 
-  async function handlePlayAudio(e: MouseEvent, textToSpeak?: string) {
+  async function handlePlayAudio(e: Event, textToSpeak?: string) {
     e.stopPropagation();
     if (!currentCard) return;
     hapticImpactLight().catch(() => {});
@@ -490,17 +490,23 @@
 
                 <!-- Si es un verbo, botón para desplegar tabla completa de conjugaciones -->
                 {#if verbInfo}
-                  <div class="flex justify-center pt-0.5">
+                  <div class="flex items-center justify-center gap-2 pt-0.5 flex-wrap">
+                    <span class="text-xs text-white/70 font-medium flex items-center gap-1.5 select-none">
+                      <span>📖</span>
+                      <span>{verbInfo.label}</span>
+                    </span>
+                    <span class="text-white/20 select-none">•</span>
                     <button
                       type="button"
+                      onpointerdown={(e) => e.stopPropagation()}
                       onclick={(e) => {
                         e.stopPropagation();
                         isConjugationsModalOpen = true;
                       }}
-                      class="touch-target px-3.5 py-1.5 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 active-press border border-emerald-400/40 text-emerald-300 text-xs font-bold flex items-center gap-1.5 shadow-sm"
+                      class="touch-target px-3 py-1 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 active-press border border-emerald-400/50 text-emerald-300 text-xs font-bold flex items-center gap-1 shadow-sm"
                     >
-                      <span>📖</span>
-                      <span>{verbInfo.label} • Ver conjugaciones</span>
+                      <span class="pointer-events-none">Ver conjugaciones</span>
+                      <span class="text-[10px] opacity-80 pointer-events-none">↗</span>
                     </button>
                   </div>
                 {/if}
@@ -518,11 +524,12 @@
                       </span>
                       <button
                         type="button"
+                        onpointerdown={(e) => e.stopPropagation()}
                         onclick={(e) => handlePlayAudio(e, parsedExample.jpPlain)}
-                        class="px-2.5 py-1 rounded-full bg-white/20 hover:bg-white/30 active-press text-[11px] font-semibold text-white flex items-center gap-1.5 shadow-sm"
+                        class="touch-target px-2.5 py-1 rounded-full bg-white/20 hover:bg-white/30 active-press text-[11px] font-semibold text-white flex items-center gap-1.5 shadow-sm"
                       >
-                        <span>🔊</span>
-                        <span>Escuchar</span>
+                        <span class="pointer-events-none">🔊</span>
+                        <span class="pointer-events-none">Escuchar</span>
                       </button>
                     </div>
 
