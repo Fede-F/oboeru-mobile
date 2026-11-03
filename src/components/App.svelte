@@ -207,9 +207,18 @@
     selectedDeckTitle = deck.title;
     currentStudyDeckId = deck.id;
     const matching = deck.filterFn ? allCards.filter(deck.filterFn) : allCards;
-    const nowMs = Date.now();
+    const now = new Date();
+    const endOfTodayMs = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      23,
+      59,
+      59,
+      999
+    ).getTime();
     const dueOnly = matching.filter(
-      (c) => new Date(c.review.next_review_date).getTime() <= nowMs
+      (c) => new Date(c.review.next_review_date).getTime() <= endOfTodayMs
     );
     const pool = dueOnly.length > 0 ? dueOnly : matching;
     const mode = getDeckStudyMode(deck.id);

@@ -1141,6 +1141,16 @@ export async function getDecksAndQueue(): Promise<{
   }
 
   const now = new Date();
+  // Final del día actual (23:59:59.999 local) para evaluar los repasos por día calendario (estilo Anki)
+  const endOfTodayMs = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+    23,
+    59,
+    59,
+    999
+  ).getTime();
   const activeCards: StudyCardItem[] = [];
 
   for (const v of vocabList) {
@@ -1179,7 +1189,7 @@ export async function getDecksAndQueue(): Promise<{
   ): DeckSummary => {
     const matching = activeCards.filter(predicate);
     const dueCards = matching.filter(
-      (c) => new Date(c.review.next_review_date).getTime() <= now.getTime()
+      (c) => new Date(c.review.next_review_date).getTime() <= endOfTodayMs
     ).length;
     const newCards = matching.filter((c) => c.review.state === 'new').length;
     const masteredCards = matching.filter(
