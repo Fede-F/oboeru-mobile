@@ -16,6 +16,7 @@ import {
   getDirtyReviews,
   getDirtyStudyLogs,
   getDirtyUserDecks,
+  getVocabularyCount,
   loadPersistedSession,
   LOCAL_DEFAULT_USER_ID,
   migrateLegacySeedData,
@@ -412,6 +413,20 @@ export class SyncManager {
     // Saneamiento y migración preventiva de IDs de semilla antiguos antes de evaluar el lote
     await migrateLegacySeedData();
 
+    // Asegurar que el catálogo completo de todos los niveles JLPT esté disponible
+    const vocabCount = await getVocabularyCount();
+    if (vocabCount < 7800) {
+      try {
+        const { default: catalogData } = await import('../../data/jlpt_vocabulary_full.json');
+        if (Array.isArray(catalogData) && catalogData.length > 0) {
+          const normalized = catalogData.map(normalizeVocabularyRecord);
+          await upsertVocabularyBatch(normalized);
+        }
+      } catch (e) {
+        console.warn('[Sync] Fallo al cargar catálogo empaquetado en syncNow:', e);
+      }
+    }
+
     const userId = this.getUserId();
     const [dirtyBefore, dirtyDecksBefore, dirtyLogsBefore] = await Promise.all([
       getDirtyReviews(),
@@ -787,6 +802,91 @@ export class SyncManager {
         errorMessage: msg
       }));
       return { pushed: totalPushed, pulled: totalPulled, skippedStale: totalSkippedStale };
+    } finally {
+      this.isRunning = false;
+    }
+  }
+
+  /**
+   * Sincroniza o descarga el catálogo completo de vocabulario (N5 a N1, 7.811 palabras).
+   * Mantiene el estado en 'syncing' para activar la animación de rotación en el botón superior de la app.
+   * Primero realiza la carga inmediata desde el paquete local empaquetado (src/data/jlpt_vocabulary_full.json)
+   * para respuesta sub-segundo garantizada, y si hay conexión a internet, actualiza contra la API remota.
+   */
+  public async syncFullCatalog(): Promise<{ count: number; source: 'bundled' | 'api' }> {
+    if (this.isRunning) {
+      return { count: 0, source: 'bundled' };
+    }
+
+    this.isRunning = true;
+    syncState.update((s) => ({
+      ...s,
+      status: 'syncing',
+      errorMessage: null
+    }));
+
+    try {
+      let loadedCount = 0;
+      let source: 'bundled' | 'api' = 'bundled';
+
+      // 1. Carga ultra-rápida desde el bundle local
+      try {
+        const { default: catalogData } = await import('../../data/jlpt_vocabulary_full.json');
+        if (Array.isArray(catalogData) && catalogData.length > 0) {
+          const normalized = catalogData.map(normalizeVocabularyRecord);
+          await upsertVocabularyBatch(normalized);
+          loadedCount = normalized.length;
+        }
+      } catch (bundleErr) {
+        console.warn('[SyncManager] Error al leer bundle local:', bundleErr);
+      }
+
+      // 2. Si no se cargaron suficientes palabras y hay red disponible, descargar de la API
+      if (loadedCount < 7800 && (typeof navigator === 'undefined' || navigator.onLine)) {
+        source = 'api';
+        for (let jlpt = 5; jlpt >= 1; jlpt--) {
+          let offset = 0;
+          while (true) {
+            const url = new URL(`${this.baseUrl}/api/v1/vocabulary`);
+            url.searchParams.set('jlpt', String(jlpt));
+            url.searchParams.set('limit', '1000');
+            url.searchParams.set('offset', String(offset));
+
+            const res = await fetch(url.toString(), {
+              headers: { Accept: 'application/json' }
+            });
+            if (!res.ok) break;
+
+            const json = await res.json();
+            const rawItems: Array<Record<string, unknown>> = Array.isArray(json.data) ? json.data : [];
+            if (rawItems.length > 0) {
+              const normalized = rawItems.map(normalizeVocabularyRecord);
+              await upsertVocabularyBatch(normalized);
+              loadedCount += normalized.length;
+            }
+            if (rawItems.length < 1000) break;
+            offset += 1000;
+          }
+        }
+      }
+
+      const remainingPending = await this.refreshPendingCount('idle');
+      syncState.update((s) => ({
+        ...s,
+        status: 'idle',
+        pendingChanges: remainingPending,
+        errorMessage: null
+      }));
+
+      return { count: loadedCount, source };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Error al descargar catálogo de palabras';
+      syncState.update((s) => ({
+        ...s,
+        status: 'error',
+        errorMessage: msg
+      }));
+      throw err;
     } finally {
       this.isRunning = false;
     }

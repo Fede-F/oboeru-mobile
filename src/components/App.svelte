@@ -25,6 +25,7 @@
   import {
     getDecksAndQueue,
     getStudyHeatmapCells,
+    getVocabularyCount,
     initLocalDatabase,
     recordLocalCardReview,
     rollbackLocalCardReview,
@@ -32,7 +33,7 @@
   } from '../lib/db/database';
   import type { DeckSummary, ReviewRating, SrsReviewRecord, StudyCardItem } from '../lib/db/schema';
   import { syncManager, syncState, type SyncStatusState } from '../lib/sync/SyncManager';
-  import { getDeckStudyMode, setDeckLastStudied, type StudyMode } from '../lib/studyMode';
+  import { cleanupContaminatedLastStudied, getDeckStudyMode, setDeckLastStudied, type StudyMode } from '../lib/studyMode';
 
   type ActiveTab = 'dashboard' | 'create-deck' | 'edit-deck' | 'add-words' | 'study' | 'search' | 'sync';
 
@@ -147,6 +148,7 @@
 
     // 3. Inicializar Base de Datos Local, restaurar sesión guardada y disparar OTA + Sync
     (async () => {
+      cleanupContaminatedLastStudied();
       await initLocalDatabase(syncManager.getUserId());
       activeSession = loadStoredStudySession();
       const hasSavedSession = await syncManager.ensureSessionHydrated();
@@ -175,7 +177,22 @@
         if (autoRes.synced) {
           await refreshLocalData();
         }
+      } else {
+        await refreshLocalData();
       }
+
+      // Si aún no están todas las palabras del JLPT (N5 a N1, 7.811 palabras), descargar/sincronizar catálogo
+      // Esto hace girar el botón de sincronización de arriba mientras se completa
+      getVocabularyCount().then(async (count) => {
+        if (count < 7800) {
+          try {
+            await syncManager.syncFullCatalog();
+            await refreshLocalData();
+          } catch (e) {
+            console.warn('[Sync] Error al sincronizar catálogo completo inicial:', e);
+          }
+        }
+      });
     })();
 
     return () => {

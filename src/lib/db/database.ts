@@ -445,6 +445,19 @@ export async function getAllVocabulary(): Promise<VocabularyRecord[]> {
   return Array.from(deduped.values());
 }
 
+/**
+ * Retorna la cantidad total de palabras guardadas actualmente en IndexedDB.
+ */
+export async function getVocabularyCount(): Promise<number> {
+  const db = await openLocalDb();
+  return new Promise<number>((resolve, reject) => {
+    const tx = db.transaction('vocabulary', 'readonly');
+    const req = tx.objectStore('vocabulary').count();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
 export async function getAllReviews(): Promise<SrsReviewRecord[]> {
   const db = await openLocalDb();
   return new Promise((resolve, reject) => {
@@ -772,10 +785,14 @@ export async function duplicateDeckToCustom(
 
 export const SYSTEM_DEFAULT_DECK_IDS = new Set([
   'jlpt-n5',
-  'verbs',
   'jlpt-n4',
+  'jlpt-n3',
+  'jlpt-n2',
+  'jlpt-n1',
+  'verbs',
   'nouns-adverbs',
-  'jlpt-n3-all'
+  'jlpt-n3-all',
+  'jlpt-all'
 ]);
 
 /**
@@ -1200,27 +1217,8 @@ export async function getDecksAndQueue(): Promise<{
       (c) => c.review.state === 'review' && c.review.interval_days >= 3
     ).length;
 
-    let latestCardStudyTime: string | null = null;
-    for (const c of matching) {
-      if (c.review && c.review.state !== 'new') {
-        const u = c.review.updated_at;
-        if (u && (!latestCardStudyTime || u > latestCardStudyTime)) {
-          latestCardStudyTime = u;
-        }
-      }
-    }
-
-    const storedTime = storedLastStudiedMap[id] || getDeckLastStudied(id);
-    let effectiveLastStudied: string | null = null;
-    if (storedTime && latestCardStudyTime) {
-      effectiveLastStudied = storedTime > latestCardStudyTime ? storedTime : latestCardStudyTime;
-    } else {
-      effectiveLastStudied = storedTime || latestCardStudyTime || null;
-    }
-
-    if (effectiveLastStudied && !storedTime) {
-      setDeckLastStudied(id, effectiveLastStudied);
-    }
+    // Solo registrar lastStudiedAt si este mazo específico fue estudiado directamente
+    const effectiveLastStudied = storedLastStudiedMap[id] || getDeckLastStudied(id) || null;
 
     return {
       id,
@@ -1251,22 +1249,49 @@ export async function getDecksAndQueue(): Promise<{
       '2026-10-01T10:00:00.000Z'
     ),
     buildDeck(
+      'jlpt-n4',
+      'JLPT N4 Elemental',
+      'Compuestos básicos y vida cotidiana',
+      'N4 • 初級',
+      'slate',
+      (v) => v.jlpt_level === 4,
+      '2026-10-05T10:00:00.000Z'
+    ),
+    buildDeck(
+      'jlpt-n3',
+      'JLPT N3 Intermedio',
+      'Puente a la fluidez, noticias y conversación',
+      'N3 • 中級',
+      'olive',
+      (v) => v.jlpt_level === 3,
+      '2026-10-10T10:00:00.000Z'
+    ),
+    buildDeck(
+      'jlpt-n2',
+      'JLPT N2 Avanzado',
+      'Vocabulario formal, negocios y prensa',
+      'N2 • 上級',
+      'emerald',
+      (v) => v.jlpt_level === 2,
+      '2026-10-12T10:00:00.000Z'
+    ),
+    buildDeck(
+      'jlpt-n1',
+      'JLPT N1 Maestría',
+      'Expresiones complejas, literatura y técnica',
+      'N1 • 最上級',
+      'slate',
+      (v) => v.jlpt_level === 1,
+      '2026-10-14T10:00:00.000Z'
+    ),
+    buildDeck(
       'verbs',
       'Verbos (動詞)',
       'Conjugaciones Godan, Ichidan y Suru',
       '動詞 • VERBS',
       'olive',
       (v) => v.part_of_speech.toLowerCase().includes('verb'),
-      '2026-10-05T10:00:00.000Z'
-    ),
-    buildDeck(
-      'jlpt-n4',
-      'JLPT N4 Intermedio',
-      'Compuestos abstractos y vida cotidiana',
-      'N4 • 中級',
-      'slate',
-      (v) => v.jlpt_level === 4,
-      '2026-10-10T10:00:00.000Z'
+      '2026-10-15T10:00:00.000Z'
     ),
     buildDeck(
       'nouns-adverbs',
@@ -1277,11 +1302,11 @@ export async function getDecksAndQueue(): Promise<{
       (v) =>
         v.part_of_speech.toLowerCase().includes('noun') ||
         v.part_of_speech.toLowerCase().includes('adverb'),
-      '2026-10-15T10:00:00.000Z'
+      '2026-10-18T10:00:00.000Z'
     ),
     buildDeck(
       'jlpt-n3-all',
-      'Inmersión Total (N5–N3)',
+      'Inmersión Total (N5–N1)',
       'Todas las palabras activas para practicar',
       '総合 • TODO',
       'mint',

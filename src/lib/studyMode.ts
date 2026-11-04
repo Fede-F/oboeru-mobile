@@ -97,3 +97,32 @@ export function getAllDecksLastStudied(): Record<string, string> {
     return {};
   }
 }
+
+const CLEANED_CONTAMINATED_KEY = 'oboeru_cleanup_contaminated_last_studied_v1';
+
+/**
+ * Limpia una sola vez los timestamps de mazos que fueron contaminados en versiones previas
+ * al inferirse automáticamente a partir del updated_at de las palabras en lugar de sesiones reales del mazo.
+ */
+export function cleanupContaminatedLastStudied(): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    if (localStorage.getItem(CLEANED_CONTAMINATED_KEY)) return;
+
+    localStorage.removeItem(LAST_STUDIED_MAP_KEY);
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(LAST_STUDIED_PREFIX)) {
+        keysToRemove.push(key);
+      }
+    }
+    for (const k of keysToRemove) {
+      localStorage.removeItem(k);
+    }
+
+    localStorage.setItem(CLEANED_CONTAMINATED_KEY, 'true');
+  } catch (err) {
+    console.warn('[StudyMode] Error cleaning up contaminated last studied timestamps:', err);
+  }
+}
