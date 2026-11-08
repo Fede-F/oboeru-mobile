@@ -12,6 +12,7 @@
     hapticSuccess,
     hapticWarning
   } from '../lib/haptics.js';
+  import { registerBackInterceptor } from '../lib/backNavigation';
 
   interface Props {
     decks: DeckSummary[];
@@ -92,6 +93,25 @@
     } catch {
       // Ignorar restricciones de storage local si aplican
     }
+
+    return registerBackInterceptor(() => {
+      if (showDeleteConfirm && !isDeleting) {
+        showDeleteConfirm = false;
+        showActionMenu = false;
+        targetDeck = null;
+        return true;
+      }
+      if (showStudyModeModal) {
+        showStudyModeModal = false;
+        return true;
+      }
+      if (showActionMenu) {
+        showActionMenu = false;
+        targetDeck = null;
+        return true;
+      }
+      return false;
+    });
   });
 
   // Variables para la detección del gesto mantener apretado (long-press)

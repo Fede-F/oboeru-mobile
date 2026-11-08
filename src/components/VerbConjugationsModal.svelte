@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { conjugateVerb, type VerbConjugationResult } from '../lib/utils/conjugator';
   import { speakJapanese } from '../lib/utils/japanese';
   import { hapticImpactLight, hapticSelection } from '../lib/haptics.js';
+  import { registerBackInterceptor } from '../lib/backNavigation';
 
   interface Props {
     isOpen: boolean;
@@ -43,6 +45,16 @@
       handleClose();
     }
   }
+
+  onMount(() => {
+    return registerBackInterceptor(() => {
+      if (isOpen && word) {
+        onClose();
+        return true;
+      }
+      return false;
+    });
+  });
 </script>
 
 <svelte:window onkeydown={handleKeydown} />

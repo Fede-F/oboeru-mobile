@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { App as CapacitorApp } from '@capacitor/app';
   import {
     notifyAppReady,
     checkAvailableUpdate,
@@ -14,6 +15,7 @@
     hapticSuccess,
     hapticWarning
   } from '../lib/haptics.js';
+  import { runBackInterceptors } from '../lib/backNavigation';
   import AuthScreen from './AuthScreen.svelte';
   import DeckList from './DeckList.svelte';
   import CreateDeckScreen from './CreateDeckScreen.svelte';
@@ -112,6 +114,95 @@
   let isDownloadingUpdate = $state(false);
   let updateDownloadError = $state<string | null>(null);
 
+  // Estado para el Toast de confirmación al salir con gesto/botón Atrás ("Double Back to Exit")
+  const EXIT_CONFIRM_TIMEOUT_MS = 2200;
+  let showExitToast = $state(false);
+  let exitToastTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function dismissExitToast() {
+    showExitToast = false;
+    if (exitToastTimer) {
+      clearTimeout(exitToastTimer);
+      exitToastTimer = null;
+    }
+  }
+
+  async function handleHardwareBackButton() {
+    if (isCheckingSession) return;
+
+    // 1. Si hay un modal de nivel raíz abierto en App.svelte, cerrarlo primero
+    if (showUpdateModal && !isDownloadingUpdate) {
+      dismissExitToast();
+      await hapticImpactLight();
+      showUpdateModal = false;
+      return;
+    }
+    if (showMeteredSyncPrompt) {
+      dismissExitToast();
+      await hapticImpactLight();
+      showMeteredSyncPrompt = false;
+      return;
+    }
+
+    // 2. Si algún componente hijo tiene un modal o bottom sheet abierto, cerrarlo primero
+    const modalHandled = await runBackInterceptors();
+    if (modalHandled) {
+      dismissExitToast();
+      await hapticImpactLight();
+      return;
+    }
+
+    // 3. Si el usuario está autenticado y dentro de una subpantalla o pestaña secundaria, volver hacia atrás en la jerarquía
+    if (syncInfo.isAuthenticated) {
+      if (currentTab === 'add-words') {
+        dismissExitToast();
+        await hapticImpactLight();
+        await refreshLocalData();
+        targetDeckForAddWords = null;
+        currentTab = editingDeck ? 'edit-deck' : 'dashboard';
+        return;
+      }
+
+      if (currentTab === 'edit-deck') {
+        dismissExitToast();
+        await hapticImpactLight();
+        await refreshLocalData();
+        editingDeck = null;
+        currentTab = 'dashboard';
+        return;
+      }
+
+      if (currentTab === 'create-deck' || currentTab === 'study') {
+        dismissExitToast();
+        await hapticImpactLight();
+        currentTab = 'dashboard';
+        return;
+      }
+
+      if (currentTab === 'search' || currentTab === 'sync') {
+        dismissExitToast();
+        await hapticSelection();
+        currentTab = 'dashboard';
+        return;
+      }
+    }
+
+    // 4. Pantalla raíz (Mazos / Dashboard o Login): patrón "Doble toque atrás para salir"
+    if (showExitToast) {
+      dismissExitToast();
+      await CapacitorApp.exitApp();
+      return;
+    }
+
+    showExitToast = true;
+    await hapticImpactLight();
+    if (exitToastTimer) clearTimeout(exitToastTimer);
+    exitToastTimer = setTimeout(() => {
+      showExitToast = false;
+      exitToastTimer = null;
+    }, EXIT_CONFIRM_TIMEOUT_MS);
+  }
+
   async function refreshLocalData() {
     const userId = syncManager.getUserId();
     const [deckData, heatmapData] = await Promise.all([
@@ -144,6 +235,11 @@
     });
     const unsubSync = syncState.subscribe((s) => {
       syncInfo = s;
+    });
+
+    // Escuchar botón/gesto físico "Atrás" nativo de Android
+    const backListenerPromise = CapacitorApp.addListener('backButton', () => {
+      handleHardwareBackButton();
     });
 
     // 3. Inicializar Base de Datos Local, restaurar sesión guardada y disparar OTA + Sync
@@ -213,6 +309,8 @@
     return () => {
       unsubOta();
       unsubSync();
+      dismissExitToast();
+      backListenerPromise.then((h) => h.remove()).catch(() => {});
     };
   });
 
@@ -253,6 +351,7 @@
   }
 
   async function switchTab(tab: ActiveTab) {
+    dismissExitToast();
     if (currentTab !== tab) {
       await hapticSelection();
       currentTab = tab;
@@ -721,10 +820,13 @@
             syncManager.syncNow().catch((e) => console.warn('[Sync] Post-duplicate sync error:', e));
           }}
           onEditDeck={(deck) => {
+            dismissExitToast();
             editingDeck = deck;
             currentTab = 'edit-deck';
           }}
           onOpenAddWords={(deck) => {
+            dismissExitToast();
+            editingDeck = null;
             targetDeckForAddWords = deck;
             currentTab = 'add-words';
           }}
@@ -746,6 +848,7 @@
             currentTab = 'dashboard';
           }}
           onOpenAddWords={() => {
+            dismissExitToast();
             targetDeckForAddWords = editingDeck;
             currentTab = 'add-words';
           }}
@@ -756,7 +859,7 @@
           onBack={async () => {
             await refreshLocalData();
             targetDeckForAddWords = null;
-            currentTab = 'dashboard';
+            currentTab = editingDeck ? 'edit-deck' : 'dashboard';
           }}
         />
       {:else if currentTab === 'study'}
@@ -974,6 +1077,26 @@
           </button>
         </div>
       {/if}
+    </div>
+  </div>
+{/if}
+
+<!-- Toast Flotante de Confirmación de Salida (Doble gesto/botón Atrás) -->
+{#if showExitToast}
+  <div
+    role="status"
+    aria-live="polite"
+    class="fixed left-1/2 -translate-x-1/2 z-50 pointer-events-none px-4 w-max max-w-[92vw] animate-fade-in {syncInfo.isAuthenticated ? 'bottom-24' : 'bottom-10'}"
+  >
+    <div
+      class="bg-[#16201d]/95 backdrop-blur-md border border-[#a7f3d0]/35 text-white px-4 py-2.5 rounded-full shadow-2xl flex items-center gap-2.5"
+    >
+      <span class="w-5 h-5 rounded-full bg-[#a7f3d0]/20 text-[#a7f3d0] flex items-center justify-center text-xs font-bold shrink-0">
+        ←
+      </span>
+      <span class="text-xs font-semibold tracking-tight text-slate-100">
+        Presioná una vez más atrás para salir
+      </span>
     </div>
   </div>
 {/if}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import * as wanakana from 'wanakana';
   import type { UserDeckRecord, VocabularyRecord } from '../lib/db/schema';
   import {
@@ -16,6 +17,7 @@
   import { isVerb, getVerbGroup } from '../lib/utils/conjugator';
   import VerbConjugationsModal from './VerbConjugationsModal.svelte';
   import { hapticImpactLight, hapticSelection, hapticSuccess } from '../lib/haptics.js';
+  import { registerBackInterceptor } from '../lib/backNavigation';
 
   interface Props {
     onQueueUpdated: () => Promise<void>;
@@ -32,6 +34,16 @@
   let isSearching = $state(false);
   let activeWordForDeck = $state<(VocabularyRecord & { inStudy: boolean; state: string }) | null>(null);
   let activeVerbForConjugation = $state<VocabularyRecord | null>(null);
+
+  onMount(() => {
+    return registerBackInterceptor(() => {
+      if (activeWordForDeck) {
+        activeWordForDeck = null;
+        return true;
+      }
+      return false;
+    });
+  });
 
   let kanaPreview = $derived(convertSearchQueryToKana(rawQuery));
 

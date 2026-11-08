@@ -14,6 +14,7 @@
     hapticSuccess,
     hapticWarning
   } from '../lib/haptics.js';
+  import { registerBackInterceptor } from '../lib/backNavigation';
 
   /**
    * @typedef {Object} Props
@@ -47,9 +48,17 @@
     const unsubscribe = subscribeOtaState((state) => {
       otaState = state;
     });
+    const unsubBack = registerBackInterceptor(() => {
+      if (showDetailsModal) {
+        showDetailsModal = false;
+        return true;
+      }
+      return false;
+    });
 
     return () => {
       unsubscribe();
+      unsubBack();
     };
   });
 
