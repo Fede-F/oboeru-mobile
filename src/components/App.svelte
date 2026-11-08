@@ -284,14 +284,16 @@
     currentStudyMode = mode;
 
     if (activeSession && activeSession.deckId === deck.id && activeSession.cardIds && activeSession.cardIds.length > 0) {
-      // Reanudar respetando el orden aleatorio y modo guardados
+      // Reanudar respetando el orden aleatorio y aplicando siempre el modo actual configurado en el mazo
       const cardMap = new Map(matching.map((c) => [c.id, c]));
       const ordered = activeSession.cardIds.map((id) => cardMap.get(id)).filter(Boolean) as StudyCardItem[];
       activeStudyCards = ordered.length > 0 ? ordered : pool;
       initialStudyIndex = activeSession.currentIndex;
       initialCompletedCount = activeSession.sessionCompletedCount;
-      if (activeSession.studyMode) {
-        currentStudyMode = activeSession.studyMode;
+      currentStudyMode = mode;
+      if (activeSession.studyMode !== mode) {
+        activeSession = { ...activeSession, studyMode: mode };
+        saveActiveStudySession(activeSession);
       }
     } else {
       // Iniciar sesión nueva respetando prioridad (repasos antes que nuevas)
@@ -325,7 +327,12 @@
     currentStudyDeckId = activeSession.deckId;
     initialStudyIndex = activeSession.currentIndex;
     initialCompletedCount = activeSession.sessionCompletedCount;
-    currentStudyMode = activeSession.studyMode || getDeckStudyMode(activeSession.deckId);
+    const latestMode = getDeckStudyMode(activeSession.deckId);
+    currentStudyMode = latestMode;
+    if (activeSession.studyMode !== latestMode) {
+      activeSession = { ...activeSession, studyMode: latestMode };
+      saveActiveStudySession(activeSession);
+    }
 
     const matching = targetDeck?.filterFn ? allCards.filter(targetDeck.filterFn) : allCards;
     if (activeSession.cardIds && activeSession.cardIds.length > 0) {

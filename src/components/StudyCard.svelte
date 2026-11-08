@@ -55,7 +55,7 @@
   let slideDirection = $state<'right' | 'left'>('right');
 
   // Determinar la dirección de la tarjeta actual según el modo del mazo
-  let cardDirection = $derived<'jp_to_es' | 'es_to_jp'>(() => {
+  let cardDirection = $derived.by<'jp_to_es' | 'es_to_jp'>(() => {
     if (studyMode === 'es_to_jp') return 'es_to_jp';
     if (studyMode === 'jp_to_es') return 'jp_to_es';
     // Modo mixto: alterna balanceadamente 50/50 por índice
@@ -90,6 +90,33 @@
       ? splitExampleSentence(currentCard.example_sentence)
       : { jpHtml: "", jpPlain: "", translation: "" },
   );
+
+  let wordLength = $derived(
+    currentCard ? stripRubyTags(currentCard.kanji || currentCard.reading).length : 0
+  );
+
+  let frontFontSizeClass = $derived.by(() => {
+    if (wordLength <= 2) {
+      return 'text-6xl sm:text-7xl min-[380px]:text-[5rem]';
+    }
+    if (wordLength <= 4) {
+      return 'text-5xl sm:text-6xl min-[380px]:text-[3.75rem]';
+    }
+    if (wordLength <= 6) {
+      return 'text-4xl sm:text-5xl';
+    }
+    return 'text-3xl sm:text-4xl';
+  });
+
+  let backFontSizeClass = $derived.by(() => {
+    if (wordLength <= 2) {
+      return 'text-4xl sm:text-5xl';
+    }
+    if (wordLength <= 4) {
+      return 'text-3xl sm:text-4xl';
+    }
+    return 'text-2xl sm:text-3xl';
+  });
 
   let srsTimeLabels = $derived.by(() => {
     if (!currentCard) {
@@ -380,20 +407,20 @@
               {#if cardDirection === 'es_to_jp'}
                 <!-- FRENTE: Modo Español -> Japonés (Producción / Memoria Activa) -->
                 <div
-                  class="my-auto py-4 flex flex-col items-center justify-center text-center space-y-2.5"
+                  class="my-auto py-4 flex flex-col items-center justify-center text-center space-y-3"
                 >
                   <span
-                    class="text-[10px] uppercase tracking-widest text-[#a7f3d0] font-extrabold bg-[#a7f3d0]/15 px-3 py-1 rounded-full border border-[#a7f3d0]/30"
+                    class="text-[11px] uppercase tracking-widest text-[#a7f3d0] font-extrabold bg-[#a7f3d0]/15 px-3.5 py-1.5 rounded-full border border-[#a7f3d0]/30 shadow-sm"
                   >
                     ¿Cómo se dice en japonés?
                   </span>
                   <p
-                    class="text-2xl sm:text-3xl font-extrabold text-white tracking-wide leading-snug line-clamp-3 select-text px-2"
+                    class="text-3xl sm:text-4xl min-[380px]:text-[2.5rem] font-extrabold text-white tracking-wide leading-snug line-clamp-3 select-text px-2"
                   >
                     {currentCard.meaning_es}
                   </p>
                   {#if currentCard.meaning_en}
-                    <p class="text-xs text-white/60 italic line-clamp-1">
+                    <p class="text-xs sm:text-sm text-white/70 italic line-clamp-1">
                       EN: {currentCard.meaning_en}
                     </p>
                   {/if}
@@ -405,14 +432,14 @@
                 >
                   <div
                     bind:this={frontWordContainer}
-                    class="text-4xl sm:text-5xl font-bold text-white tracking-wide leading-relaxed select-text"
+                    class="{frontFontSizeClass} font-extrabold text-white tracking-wide leading-relaxed sm:leading-loose select-text transition-all px-2 break-keep"
                   >
                     {stripRubyTags(currentCard.kanji || currentCard.reading)}
                   </div>
 
                   {#if !currentCard.kanji}
                     <span
-                      class="mt-2 text-[11px] uppercase tracking-widest text-white/70 font-semibold"
+                      class="mt-3 text-xs uppercase tracking-widest text-[#a7f3d0]/90 font-bold bg-[#a7f3d0]/10 px-3 py-1 rounded-full border border-[#a7f3d0]/20"
                     >
                       Palabra en Kana
                     </span>
@@ -457,22 +484,22 @@
               </div>
 
               <!-- Cuerpo de la respuesta -->
-              <div class="my-auto py-1.5 space-y-2.5">
+              <div class="my-auto py-2 space-y-3">
                 <!-- Palabra + Lectura Kana + Romaji -->
-                <div class="text-center pb-2 border-b border-white/10">
+                <div class="text-center pb-2.5 border-b border-white/10">
                   <div
                     bind:this={backWordContainer}
-                    class="text-2xl font-bold text-white tracking-wide leading-snug"
+                    class="{backFontSizeClass} font-extrabold text-white tracking-wide leading-snug"
                   >
                     {stripRubyTags(currentCard.kanji || currentCard.reading)}
                   </div>
-                  <div class="mt-1 flex items-center justify-center gap-2 text-xs">
-                    <span class="text-white font-semibold"
+                  <div class="mt-1.5 flex items-center justify-center gap-2 text-sm sm:text-base">
+                    <span class="text-[#a7f3d0] font-bold tracking-wide"
                       >{currentCard.reading}</span
                     >
                     <span class="text-white/30">•</span>
                     <span
-                      class="font-mono text-white/80 text-[11px] uppercase tracking-wider"
+                      class="font-mono text-white/80 text-xs sm:text-sm uppercase tracking-wider"
                     >
                       {romajiReading}
                     </span>
@@ -480,13 +507,15 @@
                 </div>
 
                 <!-- Significados (Español + Inglés) -->
-                <div class="space-y-0.5 text-center">
-                  <p class="text-lg font-bold text-white leading-snug line-clamp-2">
+                <div class="space-y-1 text-center py-0.5">
+                  <p class="text-xl sm:text-2xl font-extrabold text-white leading-snug line-clamp-2">
                     {currentCard.meaning_es}
                   </p>
-                  <p class="text-[11px] text-white/70 italic line-clamp-1">
-                    EN: {currentCard.meaning_en}
-                  </p>
+                  {#if currentCard.meaning_en}
+                    <p class="text-xs sm:text-sm text-white/70 italic line-clamp-1">
+                      EN: {currentCard.meaning_en}
+                    </p>
+                  {/if}
                 </div>
 
                 <!-- Si es un verbo, botón para desplegar tabla completa de conjugaciones -->
@@ -502,7 +531,7 @@
                       onclick={() => {
                         isConjugationsModalOpen = true;
                       }}
-                      class="touch-target px-3 py-1 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 active-press border border-emerald-400/50 text-emerald-300 text-xs font-bold flex items-center gap-1 shadow-sm"
+                      class="touch-target px-3.5 py-1.5 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 active-press border border-emerald-400/50 text-emerald-300 text-xs font-bold flex items-center gap-1 shadow-sm"
                     >
                       <span>Ver conjugaciones</span>
                       <span class="text-[10px] opacity-80">↗</span>
@@ -513,18 +542,18 @@
                 <!-- Oración de Ejemplo con botón de audio propio -->
                 {#if currentCard.example_sentence}
                   <div
-                    class="p-2.5 rounded-2xl bg-black/25 space-y-1"
+                    class="p-3 rounded-2xl bg-black/30 space-y-1.5 border border-white/5"
                   >
                     <div class="flex items-center justify-between gap-2">
                       <span
-                        class="text-[10px] font-bold uppercase tracking-wider text-white/70"
+                        class="text-[11px] font-bold uppercase tracking-wider text-[#a7f3d0]"
                       >
                         Ejemplo
                       </span>
                       <button
                         type="button"
                         onclick={() => handlePlayAudio(parsedExample.jpPlain)}
-                        class="touch-target px-2.5 py-1 rounded-full bg-white/20 hover:bg-white/30 active-press text-[11px] font-semibold text-white flex items-center gap-1.5 shadow-sm"
+                        class="touch-target px-2.5 py-1 rounded-full bg-white/20 hover:bg-white/30 active-press text-xs font-semibold text-white flex items-center gap-1.5 shadow-sm"
                       >
                         <span>🔊</span>
                         <span>Escuchar</span>
@@ -533,13 +562,13 @@
 
                     <div
                       bind:this={exampleJpContainer}
-                      class="text-sm font-medium text-white leading-snug"
+                      class="text-base sm:text-lg font-medium text-white leading-relaxed"
                     >
                       {parsedExample.jpPlain}
                     </div>
 
                     {#if parsedExample.translation}
-                      <p class="text-[11px] text-white/80 leading-snug line-clamp-2">
+                      <p class="text-xs sm:text-sm text-white/85 leading-relaxed line-clamp-2">
                         {parsedExample.translation}
                       </p>
                     {/if}

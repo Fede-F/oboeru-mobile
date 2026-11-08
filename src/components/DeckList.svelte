@@ -72,8 +72,16 @@
   let showDeleteConfirm = $state(false);
   let showStudyModeModal = $state(false);
   let currentDeckMode = $state<StudyMode>('jp_to_es');
+  let studyModeVersion = $state(0);
   let isDeleting = $state(false);
   let isDuplicating = $state(false);
+
+  function getDeckModeLabel(deck: DeckSummary): string {
+    void studyModeVersion;
+    const mode = getDeckStudyMode(deck.id);
+    const badge = STUDY_MODE_DETAILS[mode]?.badge || 'JP → ES';
+    return deck.isCustom ? `${badge} • MÍO` : badge;
+  }
 
   onMount(() => {
     try {
@@ -145,6 +153,7 @@
     await hapticSuccess();
     setDeckStudyMode(targetDeck.id, mode);
     currentDeckMode = mode;
+    studyModeVersion += 1;
     showStudyModeModal = false;
     showActionMenu = false;
     targetDeck = null;
@@ -637,10 +646,10 @@
                     </div>
                   </div>
 
-                  <!-- Pie del Mazo: Etiqueta JP | ES y botón circular mate (solo en mazos propios) -->
+                  <!-- Pie del Mazo: Etiqueta de Modo de Estudio y botón circular mate (solo en mazos propios) -->
                   <div class="flex items-center justify-between pt-1">
                     <span class="text-[10px] font-bold uppercase tracking-wider text-white/55 truncate">
-                      {deck.isCustom ? 'JP | MÍO' : 'JP | ES'}
+                      {getDeckModeLabel(deck)}
                     </span>
 
                     {#if deck.isCustom}
