@@ -98,9 +98,19 @@ export function convertSearchQueryToKana(input: string): {
 
   // Si el usuario escribe caracteres latinos que forman sílabas japonesas válidas
   const isLatin = /^[a-zA-Z\s'-]+$/.test(trimmed);
-  const hiragana = isLatin ? wanakana.toHiragana(trimmed, { IMEMode: true }) : trimmed;
-  const katakana = isLatin ? wanakana.toKatakana(trimmed, { IMEMode: true }) : trimmed;
-  const romaji = wanakana.toRomaji(trimmed).toLowerCase();
+
+  // Normalizaciones fonéticas habituales para principiantes (ej. suitachi -> tsuitachi, fusuka -> futsuka)
+  let normalizedLatin = trimmed;
+  if (isLatin) {
+    normalizedLatin = trimmed
+      .replace(/\bsuitachi\b/gi, 'tsuitachi')
+      .replace(/\bfusuka\b/gi, 'futsuka')
+      .replace(/\bfusika\b/gi, 'futsuka');
+  }
+
+  const hiragana = isLatin ? wanakana.toHiragana(normalizedLatin, { IMEMode: true }) : trimmed;
+  const katakana = isLatin ? wanakana.toKatakana(normalizedLatin, { IMEMode: true }) : trimmed;
+  const romaji = wanakana.toRomaji(normalizedLatin).toLowerCase();
 
   return {
     raw: trimmed,

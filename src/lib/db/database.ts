@@ -1142,6 +1142,31 @@ export async function toggleVocabularyInStudy(
 }
 
 /**
+ * Palabras clave y kanjis que pertenecen al dominio de Fechas y Calendario
+ */
+export const CALENDAR_KANJI_SET = new Set([
+  '一日', '二日', '三日', '四日', '五日', '六日', '七日', '八日', '九日', '十日',
+  '十一日', '十二日', '十三日', '十四日', '十五日', '十六日', '十七日', '十八日', '十九日', '二十日',
+  '二十一日', '二十二日', '二十三日', '二十四日', '二十五日', '二十六日', '二十七日', '二十八日', '二十九日',
+  '三十日', '三十一日', '何日',
+  '一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月', '何月',
+  '月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日', '日曜日', '何曜日',
+  '昨日', '今日', '明日', '一昨日', '明後日',
+  '毎日', '毎週', '毎月', '毎年',
+  '先週', '今週', '来週', '先々週', '再来週',
+  '先月', '今月', '来月', '先々月', '再来月',
+  '去年', '今年', '来年', '一昨年', '再来年',
+  '日付', 'カレンダー', '週', '月', '日', '年'
+]);
+
+export function isCalendarVocabulary(v: VocabularyRecord): boolean {
+  const cleanK = stripRubyTags(v.kanji).trim();
+  if (CALENDAR_KANJI_SET.has(cleanK)) return true;
+  const mEs = (v.meaning_es || '').toLowerCase();
+  return mEs.includes('(calendario)') || mEs.includes('día del mes');
+}
+
+/**
  * Construye los mazos para el Dashboard asimétrico/escalonado (staggered layout)
  */
 export async function getDecksAndQueue(): Promise<{
@@ -1247,6 +1272,15 @@ export async function getDecksAndQueue(): Promise<{
       'mint',
       (v) => v.jlpt_level === 5,
       '2026-10-01T10:00:00.000Z'
+    ),
+    buildDeck(
+      'calendar-dates',
+      'Fechas y Calendario',
+      'Días del mes, días de la semana, meses y expresiones temporales',
+      '日付 • FECHAS',
+      'emerald',
+      (v) => isCalendarVocabulary(v),
+      '2026-10-03T10:00:00.000Z'
     ),
     buildDeck(
       'jlpt-n4',

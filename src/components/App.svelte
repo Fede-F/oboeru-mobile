@@ -181,12 +181,27 @@
         await refreshLocalData();
       }
 
-      // Si aún no están todas las palabras del JLPT (N5 a N1, 7.811 palabras), descargar/sincronizar catálogo
-      // Esto hace girar el botón de sincronización de arriba mientras se completa
+      // Si aún no están todas las palabras del JLPT o falta la actualización del catálogo de calendario
+      const CATALOG_VERSION_KEY = 'oboeru_vocab_catalog_version';
+      const CURRENT_CATALOG_VERSION = '2026-11-08-calendar-v1';
+
       getVocabularyCount().then(async (count) => {
-        if (count < 7800) {
+        let storedVersion: string | null = null;
+        try {
+          storedVersion = typeof localStorage !== 'undefined' ? localStorage.getItem(CATALOG_VERSION_KEY) : null;
+        } catch {
+          // ignore
+        }
+        if (count < 7845 || storedVersion !== CURRENT_CATALOG_VERSION) {
           try {
             await syncManager.syncFullCatalog();
+            if (typeof localStorage !== 'undefined') {
+              try {
+                localStorage.setItem(CATALOG_VERSION_KEY, CURRENT_CATALOG_VERSION);
+              } catch {
+                // ignore
+              }
+            }
             await refreshLocalData();
           } catch (e) {
             console.warn('[Sync] Error al sincronizar catálogo completo inicial:', e);

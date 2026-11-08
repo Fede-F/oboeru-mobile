@@ -110,12 +110,12 @@
 
   let backFontSizeClass = $derived.by(() => {
     if (wordLength <= 2) {
-      return 'text-4xl sm:text-5xl';
+      return 'text-2xl sm:text-3xl';
     }
     if (wordLength <= 4) {
-      return 'text-3xl sm:text-4xl';
+      return 'text-xl sm:text-2xl';
     }
-    return 'text-2xl sm:text-3xl';
+    return 'text-lg sm:text-xl';
   });
 
   let srsTimeLabels = $derived.by(() => {
@@ -458,9 +458,9 @@
             </div>
 
             <!-- ================= CARA TRASERA (DORSO / RESPUESTA) ================= -->
-            <div class="flip-face flip-face-back bg-gradient-to-br from-[#3b4c42] via-[#2a362f] to-[#151f1a] shadow-2xl p-4 sm:p-5 flex flex-col justify-between">
+            <div class="flip-face flip-face-back bg-gradient-to-br from-[#3b4c42] via-[#2a362f] to-[#151f1a] shadow-2xl p-4 sm:p-5 flex flex-col justify-between overflow-hidden">
               <!-- Cabecera interna del reverso -->
-              <div class="flex items-center justify-between text-xs">
+              <div class="flex items-center justify-between text-xs shrink-0 mb-1">
                 <div class="flex items-center gap-1.5">
                   <span
                     class="px-2.5 py-0.5 rounded-full bg-black/25 text-white font-semibold tracking-wide"
@@ -483,23 +483,23 @@
                 </span>
               </div>
 
-              <!-- Cuerpo de la respuesta -->
-              <div class="my-auto py-2 space-y-3">
+              <!-- Cuerpo de la respuesta (con scroll interno suave si el contenido es largo) -->
+              <div class="flex-1 overflow-y-auto overscroll-contain pr-0.5 space-y-2.5 my-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                 <!-- Palabra + Lectura Kana + Romaji -->
-                <div class="text-center pb-2.5 border-b border-white/10">
+                <div class="text-center pb-2 border-b border-white/10">
                   <div
                     bind:this={backWordContainer}
                     class="{backFontSizeClass} font-extrabold text-white tracking-wide leading-snug"
                   >
                     {stripRubyTags(currentCard.kanji || currentCard.reading)}
                   </div>
-                  <div class="mt-1.5 flex items-center justify-center gap-2 text-sm sm:text-base">
+                  <div class="mt-1 flex items-center justify-center gap-2 text-xs sm:text-sm">
                     <span class="text-[#a7f3d0] font-bold tracking-wide"
                       >{currentCard.reading}</span
                     >
                     <span class="text-white/30">•</span>
                     <span
-                      class="font-mono text-white/80 text-xs sm:text-sm uppercase tracking-wider"
+                      class="font-mono text-white/80 text-[11px] sm:text-xs uppercase tracking-wider"
                     >
                       {romajiReading}
                     </span>
@@ -507,12 +507,12 @@
                 </div>
 
                 <!-- Significados (Español + Inglés) -->
-                <div class="space-y-1 text-center py-0.5">
-                  <p class="text-xl sm:text-2xl font-extrabold text-white leading-snug line-clamp-2">
+                <div class="space-y-0.5 text-center">
+                  <p class="text-base sm:text-lg font-bold text-white leading-snug line-clamp-2">
                     {currentCard.meaning_es}
                   </p>
                   {#if currentCard.meaning_en}
-                    <p class="text-xs sm:text-sm text-white/70 italic line-clamp-1">
+                    <p class="text-[11px] sm:text-xs text-white/70 italic line-clamp-1">
                       EN: {currentCard.meaning_en}
                     </p>
                   {/if}
@@ -520,7 +520,7 @@
 
                 <!-- Si es un verbo, botón para desplegar tabla completa de conjugaciones -->
                 {#if verbInfo}
-                  <div class="flex items-center justify-center gap-2 pt-0.5 flex-wrap">
+                  <div class="flex items-center justify-center gap-2 py-0.5 flex-wrap">
                     <span class="text-xs text-white/70 font-medium flex items-center gap-1.5 select-none">
                       <span>📖</span>
                       <span>{verbInfo.label}</span>
@@ -531,7 +531,7 @@
                       onclick={() => {
                         isConjugationsModalOpen = true;
                       }}
-                      class="touch-target px-3.5 py-1.5 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 active-press border border-emerald-400/50 text-emerald-300 text-xs font-bold flex items-center gap-1 shadow-sm"
+                      class="touch-target px-3 py-1 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 active-press border border-emerald-400/50 text-emerald-300 text-xs font-bold flex items-center gap-1 shadow-sm"
                     >
                       <span>Ver conjugaciones</span>
                       <span class="text-[10px] opacity-80">↗</span>
@@ -542,18 +542,18 @@
                 <!-- Oración de Ejemplo con botón de audio propio -->
                 {#if currentCard.example_sentence}
                   <div
-                    class="p-3 rounded-2xl bg-black/30 space-y-1.5 border border-white/5"
+                    class="p-2.5 rounded-2xl bg-black/30 space-y-1 border border-white/5"
                   >
                     <div class="flex items-center justify-between gap-2">
                       <span
-                        class="text-[11px] font-bold uppercase tracking-wider text-[#a7f3d0]"
+                        class="text-[10px] font-bold uppercase tracking-wider text-[#a7f3d0]"
                       >
                         Ejemplo
                       </span>
                       <button
                         type="button"
                         onclick={() => handlePlayAudio(parsedExample.jpPlain)}
-                        class="touch-target px-2.5 py-1 rounded-full bg-white/20 hover:bg-white/30 active-press text-xs font-semibold text-white flex items-center gap-1.5 shadow-sm"
+                        class="touch-target px-2.5 py-1 rounded-full bg-white/20 hover:bg-white/30 active-press text-[11px] font-semibold text-white flex items-center gap-1.5 shadow-sm"
                       >
                         <span>🔊</span>
                         <span>Escuchar</span>
@@ -562,13 +562,13 @@
 
                     <div
                       bind:this={exampleJpContainer}
-                      class="text-base sm:text-lg font-medium text-white leading-relaxed"
+                      class="text-sm sm:text-base font-medium text-white leading-snug"
                     >
                       {parsedExample.jpPlain}
                     </div>
 
                     {#if parsedExample.translation}
-                      <p class="text-xs sm:text-sm text-white/85 leading-relaxed line-clamp-2">
+                      <p class="text-xs text-white/80 leading-snug line-clamp-2">
                         {parsedExample.translation}
                       </p>
                     {/if}
@@ -577,11 +577,11 @@
               </div>
 
               <!-- Pie del Reverso: Botón para volver al frente -->
-              <div class="text-center pt-1.5 border-t border-white/10">
+              <div class="text-center pt-1 border-t border-white/10 shrink-0 mt-auto">
                 <button
                   type="button"
                   onclick={handleCardFlip}
-                  class="touch-target text-[10px] text-white/60 hover:text-white/90 active-press font-medium flex items-center justify-center gap-1.5 mx-auto py-1"
+                  class="touch-target text-[10px] text-white/60 hover:text-white/90 active-press font-medium flex items-center justify-center gap-1.5 mx-auto py-0.5"
                 >
                   <span>Tocá aquí para volver a la pregunta</span>
                   <span class="text-xs">↺</span>
@@ -596,9 +596,9 @@
     <!-- ====================================================================== -->
     <!-- BOTONES SRS INFERIORES: Pregunta orientadora y botones de calificación -->
     <!-- ====================================================================== -->
-    <div class="pt-1 space-y-1.5">
+    <div class="pt-2 space-y-1.5 shrink-0">
       {#if isFlipped}
-        <p class="text-center text-xs font-medium text-white/80 animate-fade-in">
+        <p class="text-center text-xs font-semibold text-white/90 animate-fade-in tracking-wide">
           ¿Qué tan bien recordaste esta palabra?
         </p>
 
