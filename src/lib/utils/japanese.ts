@@ -82,6 +82,18 @@ export function toRomajiText(reading: string): string {
 }
 
 /**
+ * Normaliza texto eliminando acentos y diacríticos para búsqueda flexible en español/inglés
+ * (ej. día -> dia, próximo -> proximo, miércoles -> miercoles, año -> ano)
+ */
+export function stripDiacritics(str: string | null | undefined): string {
+  if (!str) return '';
+  return str
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+/**
  * Convierte input en tiempo real (Romaji -> Hiragana/Katakana) para el buscador con WanaKana.js
  */
 export function convertSearchQueryToKana(input: string): {

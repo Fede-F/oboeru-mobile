@@ -1010,6 +1010,15 @@ export class SyncManager {
         });
       }
 
+      // Combinar con los resultados locales (garantiza búsqueda offline instantánea y soporte de tildes/acentos)
+      const localMatches = await searchLocalVocabulary(rawQuery, jlptFilter);
+      for (const loc of localMatches) {
+        const key = `${loc.kanji || ''}::${loc.reading}`;
+        if (!deduped.has(key)) {
+          deduped.set(key, loc);
+        }
+      }
+
       return Array.from(deduped.values());
     } catch {
       return searchLocalVocabulary(rawQuery, jlptFilter);

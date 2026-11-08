@@ -3,7 +3,7 @@
   import type { DeckSummary, VocabularyRecord } from '../lib/db/schema';
   import { getWordsForDeck, removeWordFromCustomDeck } from '../lib/db/database';
   import { syncManager } from '../lib/sync/SyncManager';
-  import { speakJapanese, stripRubyTags, toRomajiText } from '../lib/utils/japanese';
+  import { speakJapanese, stripDiacritics, stripRubyTags, toRomajiText } from '../lib/utils/japanese';
   import { isVerb, getVerbGroup } from '../lib/utils/conjugator';
   import { hapticImpactLight, hapticImpactMedium, hapticSuccess } from '../lib/haptics.js';
 
@@ -23,18 +23,23 @@
   let filteredWords = $derived.by(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return words;
+    const qNorm = stripDiacritics(q);
     return words.filter((w) => {
       const kanji = stripRubyTags(w.kanji).toLowerCase();
       const reading = w.reading.toLowerCase();
       const romaji = toRomajiText(w.reading).toLowerCase();
       const es = w.meaning_es.toLowerCase();
+      const esNorm = stripDiacritics(w.meaning_es);
       const en = w.meaning_en.toLowerCase();
+      const enNorm = stripDiacritics(w.meaning_en);
       return (
         kanji.includes(q) ||
         reading.includes(q) ||
         romaji.includes(q) ||
         es.includes(q) ||
-        en.includes(q)
+        esNorm.includes(qNorm) ||
+        en.includes(q) ||
+        enNorm.includes(qNorm)
       );
     });
   });

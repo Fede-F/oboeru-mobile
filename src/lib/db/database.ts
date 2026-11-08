@@ -9,7 +9,7 @@ import type {
 } from './schema';
 import { INITIAL_VOCABULARY_SEED } from './seedVocabulary';
 import { calculateNextReview } from '../srs/sm2';
-import { convertSearchQueryToKana, stripRubyTags, toRomajiText } from '../utils/japanese';
+import { convertSearchQueryToKana, stripDiacritics, stripRubyTags, toRomajiText } from '../utils/japanese';
 import { getDeconjugatedCandidates } from '../utils/conjugator';
 import { getAllDecksLastStudied, getDeckLastStudied, setDeckLastStudied } from '../studyMode';
 
@@ -1385,6 +1385,7 @@ export async function searchLocalVocabulary(
 
   const converted = convertSearchQueryToKana(rawQuery);
   const qLower = converted.raw.toLowerCase();
+  const qNormalized = stripDiacritics(converted.raw);
   const hira = converted.hiragana;
   const kata = converted.katakana;
   const deconjugated = getDeconjugatedCandidates(rawQuery);
@@ -1396,6 +1397,8 @@ export async function searchLocalVocabulary(
 
       const cleanKanji = stripRubyTags(v.kanji);
       const itemRomaji = toRomajiText(v.reading).toLowerCase();
+      const meaningEsNorm = stripDiacritics(v.meaning_es);
+      const meaningEnNorm = stripDiacritics(v.meaning_en);
 
       const matchesDeconjugated =
         deconjugated.length > 0 &&
@@ -1414,6 +1417,8 @@ export async function searchLocalVocabulary(
         v.reading.includes(hira) ||
         v.reading.includes(kata) ||
         itemRomaji.includes(qLower) ||
+        meaningEsNorm.includes(qNormalized) ||
+        meaningEnNorm.includes(qNormalized) ||
         v.meaning_es.toLowerCase().includes(qLower) ||
         v.meaning_en.toLowerCase().includes(qLower) ||
         matchesDeconjugated
