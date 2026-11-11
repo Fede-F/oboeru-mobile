@@ -25,6 +25,7 @@
     onOpenCreateDeck: () => void;
     onDeckDeleted?: () => void | Promise<void>;
     onDeckDuplicated?: () => void | Promise<void>;
+    onViewDeckWords?: (deck: DeckSummary) => void;
     onEditDeck?: (deck: DeckSummary) => void;
     onOpenAddWords?: (deck: DeckSummary) => void;
   }
@@ -40,6 +41,7 @@
     onOpenCreateDeck,
     onDeckDeleted,
     onDeckDuplicated,
+    onViewDeckWords,
     onEditDeck,
     onOpenAddWords
   }: Props = $props();
@@ -177,6 +179,14 @@
     showStudyModeModal = false;
     showActionMenu = false;
     targetDeck = null;
+  }
+
+  async function handleViewDeckWords() {
+    if (!targetDeck || !onViewDeckWords) return;
+    await hapticImpactLight();
+    const deckToView = targetDeck;
+    closeMenu();
+    onViewDeckWords(deckToView);
   }
 
   async function handleEditDeck() {
@@ -813,7 +823,26 @@
 
         <!-- Opciones del Menú (Alto y Ancho emparejados simétricamente con alineación lateral perfecta) -->
         <div class="space-y-2.5">
-          <!-- 1. Editar Mazo (solo disponible para mazos propios "Míos") -->
+          <!-- 1. Ver Palabras / Hoja de Estudio (Disponible para TODOS los mazos) -->
+          <button
+            type="button"
+            onclick={handleViewDeckWords}
+            class="w-full min-h-[64px] px-4 py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-left active-press flex items-center justify-between transition-colors border border-transparent hover:border-white/10"
+          >
+            <div class="flex items-center gap-3.5 flex-1 min-w-0">
+              <div class="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center text-lg shrink-0">
+                📖
+              </div>
+              <div class="flex-1 min-w-0">
+                <span class="text-sm font-bold text-white block truncate leading-snug">Ver palabras</span>
+                <span class="text-[11px] text-white/60 block truncate leading-normal mt-0.5">Explorar vocabulario, ejemplos y hoja de estudio</span>
+              </div>
+            </div>
+
+            <span class="text-white/40 text-lg font-bold shrink-0 ml-3">›</span>
+          </button>
+
+          <!-- 2. Editar Mazo (solo disponible para mazos propios "Míos") -->
           {#if targetDeck.isCustom}
             <button
               type="button"
@@ -826,7 +855,7 @@
                 </div>
                 <div class="flex-1 min-w-0">
                   <span class="text-sm font-bold text-white block truncate leading-snug">Editar mazo</span>
-                  <span class="text-[11px] text-white/60 block truncate leading-normal mt-0.5">Ver y quitar palabras de este mazo</span>
+                  <span class="text-[11px] text-white/60 block truncate leading-normal mt-0.5">Agregar o quitar palabras de este mazo</span>
                 </div>
               </div>
 

@@ -18,6 +18,7 @@
   import { runBackInterceptors } from '../lib/backNavigation';
   import AuthScreen from './AuthScreen.svelte';
   import DeckList from './DeckList.svelte';
+  import DeckWordsScreen from './DeckWordsScreen.svelte';
   import CreateDeckScreen from './CreateDeckScreen.svelte';
   import EditDeckScreen from './EditDeckScreen.svelte';
   import AddWordsToDeckScreen from './AddWordsToDeckScreen.svelte';
@@ -37,7 +38,7 @@
   import { syncManager, syncState, type SyncStatusState } from '../lib/sync/SyncManager';
   import { cleanupContaminatedLastStudied, getDeckStudyMode, setDeckLastStudied, type StudyMode } from '../lib/studyMode';
 
-  type ActiveTab = 'dashboard' | 'create-deck' | 'edit-deck' | 'add-words' | 'study' | 'search' | 'sync';
+  type ActiveTab = 'dashboard' | 'deck-words' | 'create-deck' | 'edit-deck' | 'add-words' | 'study' | 'search' | 'sync';
 
   const ACTIVE_STUDY_SESSION_KEY = 'oboeru_active_study_session';
 
@@ -61,8 +62,15 @@
   let currentStudyDeckId = $state<string>('');
   let currentStudyMode = $state<StudyMode>('jp_to_es');
   let activeStudyCards = $state<StudyCardItem[]>([]);
+  let viewingWordsDeck = $state<DeckSummary | null>(null);
   let editingDeck = $state<DeckSummary | null>(null);
   let targetDeckForAddWords = $state<DeckSummary | null>(null);
+
+  let viewingDeckCards = $derived.by<StudyCardItem[]>(() => {
+    if (!viewingWordsDeck) return [];
+    const latestDeck = decks.find((d) => d.id === viewingWordsDeck!.id) || viewingWordsDeck;
+    return latestDeck.filterFn ? allCards.filter(latestDeck.filterFn) : allCards;
+  });
   let activeSession = $state<ActiveStudySession | null>(null);
   let initialStudyIndex = $state(0);
   let initialCompletedCount = $state(0);
@@ -168,6 +176,14 @@
         await hapticImpactLight();
         await refreshLocalData();
         editingDeck = null;
+        currentTab = 'dashboard';
+        return;
+      }
+
+      if (currentTab === 'deck-words') {
+        dismissExitToast();
+        await hapticImpactLight();
+        viewingWordsDeck = null;
         currentTab = 'dashboard';
         return;
       }
@@ -623,7 +639,7 @@
 {:else if !syncInfo.isAuthenticated}
   <AuthScreen onAuthenticated={handleAuthenticatedSuccess} />
 {:else}
-  <div class="flex flex-col min-h-screen bg-[#0c0f12] text-white antialiased overflow-hidden select-none">
+  <div class="flex flex-col min-h-screen bg-[#0c0f12] text-white antialiased overflow-x-clip select-none">
     <!-- Top App Bar con Safe Area y Estilo Oscuro Mate Limpio -->
     <header class="glass-header sticky top-0 z-40 px-5 pt-safe pb-3 flex items-center justify-between">
       <div class="flex items-center gap-3 min-w-0">
@@ -733,7 +749,7 @@
     {/if}
 
     <!-- Contenido Principal con Scroll Móvil -->
-    <main class="flex-1 overflow-y-auto px-5 py-4 pb-28 max-w-lg w-full mx-auto">
+    <main class="flex-1 px-5 py-4 pb-28 max-w-lg w-full mx-auto">
       {#if currentTab === 'dashboard'}
         {#if activeSession && activeSession.currentIndex < activeSession.totalCards}
           <!-- Banner de Sesión de Estudio en Curso -->
@@ -819,6 +835,11 @@
             await refreshLocalData();
             syncManager.syncNow().catch((e) => console.warn('[Sync] Post-duplicate sync error:', e));
           }}
+          onViewDeckWords={(deck) => {
+            dismissExitToast();
+            viewingWordsDeck = deck;
+            currentTab = 'deck-words';
+          }}
           onEditDeck={(deck) => {
             dismissExitToast();
             editingDeck = deck;
@@ -829,6 +850,15 @@
             editingDeck = null;
             targetDeckForAddWords = deck;
             currentTab = 'add-words';
+          }}
+        />
+      {:else if currentTab === 'deck-words' && viewingWordsDeck}
+        <DeckWordsScreen
+          deck={viewingWordsDeck}
+          cards={viewingDeckCards}
+          onBack={() => {
+            viewingWordsDeck = null;
+            currentTab = 'dashboard';
           }}
         />
       {:else if currentTab === 'create-deck'}
@@ -939,7 +969,7 @@
         <button
           type="button"
           onclick={() => switchTab('dashboard')}
-          class="touch-target active-press flex flex-col items-center justify-center gap-1 transition-colors {currentTab === 'dashboard' || currentTab === 'create-deck' || currentTab === 'edit-deck' || currentTab === 'add-words' || currentTab === 'study'
+          class="touch-target active-press flex flex-col items-center justify-center gap-1 transition-colors {currentTab === 'dashboard' || currentTab === 'deck-words' || currentTab === 'create-deck' || currentTab === 'edit-deck' || currentTab === 'add-words' || currentTab === 'study'
             ? 'text-[#a7f3d0]'
             : 'text-slate-400 hover:text-slate-200'}"
         >
