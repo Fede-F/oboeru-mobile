@@ -50,6 +50,7 @@
     totalCards: number;
     cardIds?: string[];
     studyMode?: StudyMode;
+    isPracticeMode?: boolean;
     savedAt: string;
   }
 
@@ -61,6 +62,7 @@
   let selectedDeckTitle = $state('JLPT N5 Esencial');
   let currentStudyDeckId = $state<string>('');
   let currentStudyMode = $state<StudyMode>('jp_to_es');
+  let isPracticeMode = $state(false);
   let activeStudyCards = $state<StudyCardItem[]>([]);
   let viewingWordsDeck = $state<DeckSummary | null>(null);
   let editingDeck = $state<DeckSummary | null>(null);
@@ -384,11 +386,7 @@
     return arr;
   }
 
-  function handleSelectDeck(deck: DeckSummary) {
-    selectedDeckTitle = deck.title;
-    currentStudyDeckId = deck.id;
-    setDeckLastStudied(deck.id);
-    const matching = deck.filterFn ? allCards.filter(deck.filterFn) : allCards;
+  function buildDeckStudyPool(matching: StudyCardItem[]): { pool: StudyCardItem[]; practiceMode: boolean } {
     const now = new Date();
     const endOfTodayMs = new Date(
       now.getFullYear(),
@@ -403,13 +401,28 @@
       (c) => c.review.state !== 'new' && new Date(c.review.next_review_date).getTime() <= endOfTodayMs
     );
     const newItems = matching.filter((c) => c.review.state === 'new');
-    let pool: StudyCardItem[];
+
     if (dueReviews.length > 0 || newItems.length > 0) {
-      // Priorizar los repasos vencidos primero (barajados), seguidos de las tarjetas nuevas (barajadas)
-      pool = [...shuffleCards(dueReviews), ...shuffleCards(newItems)];
-    } else {
-      pool = shuffleCards(matching);
+      // Priorizar los repasos vencidos/pendientes de hoy primero (barajados), seguidos de las tarjetas nuevas (barajadas)
+      return {
+        pool: [...shuffleCards(dueReviews), ...shuffleCards(newItems)],
+        practiceMode: false
+      };
     }
+
+    // Si no quedan tarjetas pendientes hoy ni nuevas, entrar en Práctica Libre (sin alterar intervalos SRS)
+    return {
+      pool: shuffleCards(matching),
+      practiceMode: true
+    };
+  }
+
+  function handleSelectDeck(deck: DeckSummary) {
+    selectedDeckTitle = deck.title;
+    currentStudyDeckId = deck.id;
+    setDeckLastStudied(deck.id);
+    const matching = deck.filterFn ? allCards.filter(deck.filterFn) : allCards;
+    const { pool, practiceMode } = buildDeckStudyPool(matching);
     const mode = getDeckStudyMode(deck.id);
     currentStudyMode = mode;
 
@@ -421,15 +434,17 @@
       initialStudyIndex = activeSession.currentIndex;
       initialCompletedCount = activeSession.sessionCompletedCount;
       currentStudyMode = mode;
+      isPracticeMode = Boolean(activeSession.isPracticeMode);
       if (activeSession.studyMode !== mode) {
         activeSession = { ...activeSession, studyMode: mode };
         saveActiveStudySession(activeSession);
       }
     } else {
-      // Iniciar sesión nueva respetando prioridad (repasos antes que nuevas)
+      // Iniciar sesión nueva respetando prioridad (repasos pendientes antes que nuevas)
       activeStudyCards = pool;
       initialStudyIndex = 0;
       initialCompletedCount = 0;
+      isPracticeMode = practiceMode;
 
       if (pool.length > 0) {
         const fresh: ActiveStudySession = {
@@ -440,6 +455,7 @@
           totalCards: pool.length,
           cardIds: pool.map((c) => c.id),
           studyMode: mode,
+          isPracticeMode: practiceMode,
           savedAt: new Date().toISOString()
         };
         activeSession = fresh;
@@ -447,6 +463,35 @@
       }
     }
     currentTab = 'study';
+  }
+
+  function handleRestartActiveDeck() {
+    const targetDeck = decks.find((d) => d.id === currentStudyDeckId);
+    const matching = targetDeck?.filterFn ? allCards.filter(targetDeck.filterFn) : allCards;
+    const { pool, practiceMode } = buildDeckStudyPool(matching);
+    const mode = getDeckStudyMode(currentStudyDeckId);
+
+    initialStudyIndex = 0;
+    initialCompletedCount = 0;
+    currentStudyMode = mode;
+    isPracticeMode = practiceMode;
+    activeStudyCards = pool;
+
+    if (pool.length > 0 && currentStudyDeckId) {
+      const fresh: ActiveStudySession = {
+        deckId: currentStudyDeckId,
+        deckTitle: selectedDeckTitle,
+        currentIndex: 0,
+        sessionCompletedCount: 0,
+        totalCards: pool.length,
+        cardIds: pool.map((c) => c.id),
+        studyMode: mode,
+        isPracticeMode: practiceMode,
+        savedAt: new Date().toISOString()
+      };
+      activeSession = fresh;
+      saveActiveStudySession(fresh);
+    }
   }
 
   function resumeCurrentSession() {
@@ -459,6 +504,7 @@
     initialCompletedCount = activeSession.sessionCompletedCount;
     const latestMode = getDeckStudyMode(activeSession.deckId);
     currentStudyMode = latestMode;
+    isPracticeMode = Boolean(activeSession.isPracticeMode);
     if (activeSession.studyMode !== latestMode) {
       activeSession = { ...activeSession, studyMode: latestMode };
       saveActiveStudySession(activeSession);
@@ -490,18 +536,20 @@
     currentStudyMode = mode;
 
     const matching = targetDeck?.filterFn ? allCards.filter(targetDeck.filterFn) : allCards;
-    // Nuevo orden aleatorio al reiniciar desde cero
-    const shuffled = shuffleCards(matching);
-    activeStudyCards = shuffled;
+    // Recalcular solo las pendientes de hoy (o entrar en práctica libre si ya está al día)
+    const { pool, practiceMode } = buildDeckStudyPool(matching);
+    isPracticeMode = practiceMode;
+    activeStudyCards = pool;
 
     const fresh: ActiveStudySession = {
       deckId,
       deckTitle,
       currentIndex: 0,
       sessionCompletedCount: 0,
-      totalCards: shuffled.length,
-      cardIds: shuffled.map((c) => c.id),
+      totalCards: pool.length,
+      cardIds: pool.map((c) => c.id),
       studyMode: mode,
+      isPracticeMode: practiceMode,
       savedAt: new Date().toISOString()
     };
     activeSession = fresh;
@@ -515,7 +563,7 @@
     saveActiveStudySession(null);
   }
 
-  function handleSessionProgress(progress: { currentIndex: number; sessionCompletedCount: number; totalCards: number }) {
+  function handleSessionProgress(progress: { currentIndex: number; sessionCompletedCount: number; totalCards: number; cardIds?: string[] }) {
     if (currentStudyDeckId && progress.currentIndex < progress.totalCards) {
       setDeckLastStudied(currentStudyDeckId);
       const updated: ActiveStudySession = {
@@ -524,8 +572,9 @@
         currentIndex: progress.currentIndex,
         sessionCompletedCount: progress.sessionCompletedCount,
         totalCards: progress.totalCards,
-        cardIds: activeSession?.cardIds || activeStudyCards.map((c) => c.id),
+        cardIds: progress.cardIds || activeSession?.cardIds || activeStudyCards.map((c) => c.id),
         studyMode: currentStudyMode,
+        isPracticeMode,
         savedAt: new Date().toISOString()
       };
       activeSession = updated;
@@ -542,6 +591,7 @@
   }
 
   async function handleUndoCard(vocabularyId: string, previousReview: SrsReviewRecord | null) {
+    if (isPracticeMode) return;
     await rollbackLocalCardReview(previousReview, vocabularyId, syncManager.getUserId());
     await refreshLocalData();
     syncManager.tryAutoSync().catch(() => {});
@@ -550,6 +600,10 @@
   async function handleRateCard(vocabularyId: string, rating: ReviewRating) {
     if (currentStudyDeckId) {
       setDeckLastStudied(currentStudyDeckId);
+    }
+    if (isPracticeMode) {
+      // En modo práctica libre (mazo ya al día), no alteramos los intervalos SRS ni la fecha de vencimiento
+      return;
     }
     await recordLocalCardReview(vocabularyId, rating, syncManager.getUserId());
     await refreshLocalData();
@@ -897,12 +951,14 @@
           deckTitle={selectedDeckTitle}
           cards={activeStudyCards}
           studyMode={currentStudyMode}
+          isPracticeMode={isPracticeMode}
           initialIndex={initialStudyIndex}
           initialCompletedCount={initialCompletedCount}
           onRateCard={handleRateCard}
           onUndoCard={handleUndoCard}
           onSessionProgress={handleSessionProgress}
           onSessionFinished={handleSessionFinished}
+          onRestartDeck={handleRestartActiveDeck}
           onExitStudy={() => switchTab('dashboard')}
         />
       {:else if currentTab === 'search'}

@@ -24,12 +24,14 @@
     deckTitle: string;
     cards: StudyCardItem[];
     studyMode?: StudyMode;
+    isPracticeMode?: boolean;
     initialIndex?: number;
     initialCompletedCount?: number;
     onRateCard: (vocabularyId: string, rating: ReviewRating) => Promise<void>;
     onUndoCard?: (vocabularyId: string, previousReview: SrsReviewRecord | null) => Promise<void>;
-    onSessionProgress?: (progress: { currentIndex: number; sessionCompletedCount: number; totalCards: number }) => void;
+    onSessionProgress?: (progress: { currentIndex: number; sessionCompletedCount: number; totalCards: number; cardIds?: string[] }) => void;
     onSessionFinished?: () => void;
+    onRestartDeck?: () => void;
     onExitStudy: () => void;
   }
 
@@ -37,15 +39,18 @@
     deckTitle = "Estudio SRS",
     cards = [],
     studyMode = "jp_to_es",
+    isPracticeMode = false,
     initialIndex = 0,
     initialCompletedCount = 0,
     onRateCard,
     onUndoCard,
     onSessionProgress,
     onSessionFinished,
+    onRestartDeck,
     onExitStudy,
   }: Props = $props();
 
+  let sessionQueue = $state<StudyCardItem[]>([...cards]);
   let currentIndex = $state(initialIndex);
   let isFlipped = $state(false);
   let showFurigana = $state(true);
@@ -53,6 +58,22 @@
   let sessionCompletedCount = $state(initialCompletedCount);
   let isConjugationsModalOpen = $state(false);
   let slideDirection = $state<'right' | 'left'>('right');
+  let requeuedCount = $state(0);
+
+  // Sincronizar la cola interna si cambia el prop `cards` (ej. al reiniciar mazo desde App.svelte)
+  let lastCardsRef = cards;
+  $effect(() => {
+    if (cards !== lastCardsRef) {
+      lastCardsRef = cards;
+      sessionQueue = [...cards];
+      currentIndex = initialIndex;
+      sessionCompletedCount = initialCompletedCount;
+      historyStack = [];
+      requeuedCount = 0;
+      isFlipped = false;
+      slideDirection = 'right';
+    }
+  });
 
   // Determinar la dirección de la tarjeta actual según el modo del mazo
   let cardDirection = $derived.by<'jp_to_es' | 'es_to_jp'>(() => {
@@ -66,6 +87,7 @@
     cardIndex: number;
     vocabularyId: string;
     previousReview: SrsReviewRecord | null;
+    requeuedAtIndex?: number;
   }
   let historyStack = $state<ReviewHistoryItem[]>([]);
 
@@ -73,7 +95,7 @@
   let backWordContainer = $state<HTMLElement | null>(null);
   let exampleJpContainer = $state<HTMLElement | null>(null);
 
-  let currentCard = $derived<StudyCardItem | null>(cards[currentIndex] ?? null);
+  let currentCard = $derived<StudyCardItem | null>(sessionQueue[currentIndex] ?? null);
 
   let verbInfo = $derived(
     currentCard && isVerb(currentCard.part_of_speech, currentCard.kanji || currentCard.reading)
@@ -119,8 +141,14 @@
   });
 
   let srsTimeLabels = $derived.by(() => {
+    if (isPracticeMode) {
+      return { 1: "Reintentar", 2: "Práctica", 3: "Práctica", 4: "Práctica" } as Record<
+        ReviewRating,
+        string
+      >;
+    }
     if (!currentCard) {
-      return { 1: "10 min", 2: "1 day", 3: "3 days", 4: "4 days" } as Record<
+      return { 1: "10 min", 2: "1 día", 3: "3 días", 4: "4 días" } as Record<
         ReviewRating,
         string
       >;
@@ -130,6 +158,7 @@
       easeFactor: Number(currentCard.review.ease_factor),
       intervalDays: Number(currentCard.review.interval_days),
       lapses: Number(currentCard.review.lapses),
+      nextReviewDate: currentCard.review.next_review_date,
     });
   });
 
@@ -188,11 +217,34 @@
     const vocabId = currentCard.id;
     const prevReviewSnapshot = currentCard.review ? { ...currentCard.review } : null;
 
+    // Si marcó "Otra vez" (rating === 1), reencolar la tarjeta dentro de la misma sesión (lógica Anki)
+    let requeuedAtIndex: number | undefined = undefined;
+    if (rating === 1) {
+      const updatedCopy: StudyCardItem = {
+        ...currentCard,
+        review: {
+          ...currentCard.review,
+          state: 'learning',
+          interval_days: 1,
+          lapses: currentCard.review.state === 'review' ? currentCard.review.lapses + 1 : currentCard.review.lapses,
+          next_review_date: new Date(Date.now() + 10 * 60 * 1000).toISOString()
+        }
+      };
+      // Insertar 3 tarjetas más adelante (o al final si quedan menos de 3) para reforzar la memoria a corto plazo
+      const insertAt = Math.min(currentIndex + 4, sessionQueue.length);
+      const nextQueue = [...sessionQueue];
+      nextQueue.splice(insertAt, 0, updatedCopy);
+      sessionQueue = nextQueue;
+      requeuedAtIndex = insertAt;
+      requeuedCount += 1;
+    }
+
     // Registrar en el historial para permitir deshacer y recalificar la tarjeta anterior
     historyStack.push({
       cardIndex: currentIndex,
       vocabularyId: vocabId,
-      previousReview: prevReviewSnapshot
+      previousReview: prevReviewSnapshot,
+      requeuedAtIndex
     });
 
     sessionCompletedCount += 1;
@@ -202,17 +254,18 @@
 
     await onRateCard(vocabId, rating);
 
-    if (currentIndex < cards.length - 1) {
+    if (currentIndex < sessionQueue.length - 1) {
       currentIndex += 1;
       if (onSessionProgress) {
         onSessionProgress({
           currentIndex,
           sessionCompletedCount,
-          totalCards: cards.length
+          totalCards: sessionQueue.length,
+          cardIds: sessionQueue.map((c) => c.id)
         });
       }
     } else {
-      currentIndex = cards.length; // Fin de la cola actual
+      currentIndex = sessionQueue.length; // Fin de la cola actual
       if (onSessionFinished) {
         onSessionFinished();
       }
@@ -226,7 +279,15 @@
     const last = historyStack.pop();
     if (!last) return;
 
-    if (onUndoCard) {
+    // Si el paso deshecho había reencolado la tarjeta por "Otra vez", eliminar esa copia de la cola
+    if (last.requeuedAtIndex !== undefined && last.requeuedAtIndex < sessionQueue.length) {
+      const nextQueue = [...sessionQueue];
+      nextQueue.splice(last.requeuedAtIndex, 1);
+      sessionQueue = nextQueue;
+      requeuedCount = Math.max(0, requeuedCount - 1);
+    }
+
+    if (onUndoCard && !isPracticeMode) {
       await onUndoCard(last.vocabularyId, last.previousReview);
     }
 
@@ -239,7 +300,8 @@
       onSessionProgress({
         currentIndex,
         sessionCompletedCount,
-        totalCards: cards.length
+        totalCards: sessionQueue.length,
+        cardIds: sessionQueue.map((c) => c.id)
       });
     }
   }
@@ -253,16 +315,23 @@
   }
 
   function restartDeckSession() {
+    if (onRestartDeck) {
+      onRestartDeck();
+      return;
+    }
+    sessionQueue = [...cards];
     currentIndex = 0;
     sessionCompletedCount = 0;
     historyStack = [];
+    requeuedCount = 0;
     isFlipped = false;
     slideDirection = 'right';
     if (onSessionProgress) {
       onSessionProgress({
         currentIndex: 0,
         sessionCompletedCount: 0,
-        totalCards: cards.length
+        totalCards: sessionQueue.length,
+        cardIds: sessionQueue.map((c) => c.id)
       });
     }
   }
@@ -347,12 +416,23 @@
   {#if currentCard}
     <!-- Barra de progreso sutil -->
     <div
-      class="flex items-center justify-between text-[11px] text-white/60 px-1"
+      class="flex items-center justify-between text-[11px] text-white/60 px-1 gap-2"
     >
-      <span
-        >Tarjeta <strong class="text-white">{currentIndex + 1}</strong> de {cards.length}</span
-      >
-      <span class="text-white/80 font-semibold uppercase tracking-wider">
+      <div class="flex items-center gap-2 min-w-0">
+        <span
+          >Tarjeta <strong class="text-white">{currentIndex + 1}</strong> de {sessionQueue.length}</span
+        >
+        {#if isPracticeMode}
+          <span class="px-2 py-0.5 rounded-full bg-sky-500/15 border border-sky-400/30 text-sky-300 text-[10px] font-bold shrink-0">
+            Práctica libre
+          </span>
+        {:else if requeuedCount > 0}
+          <span class="px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-400/30 text-amber-300 text-[10px] font-bold shrink-0">
+            +{requeuedCount} repaso
+          </span>
+        {/if}
+      </div>
+      <span class="text-white/80 font-semibold uppercase tracking-wider shrink-0">
         JLPT N{currentCard.jlpt_level} • {verbInfo ? verbInfo.label : currentCard.part_of_speech}
       </span>
     </div>

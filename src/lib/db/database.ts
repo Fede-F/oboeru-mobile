@@ -974,13 +974,15 @@ export async function recordLocalCardReview(
         state: existing.state,
         easeFactor: Number(existing.ease_factor),
         intervalDays: Number(existing.interval_days),
-        lapses: Number(existing.lapses)
+        lapses: Number(existing.lapses),
+        nextReviewDate: existing.next_review_date
       }
     : {
         state: 'new' as const,
         easeFactor: 2.5,
         intervalDays: 0,
-        lapses: 0
+        lapses: 0,
+        nextReviewDate: null
       };
 
   const nextCalc = calculateNextReview(currentCard, rating, now);
